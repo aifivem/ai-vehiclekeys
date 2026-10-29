@@ -1,0 +1,8 @@
+{
+  "lockDistance": 6,
+  "unlockChance": 60,
+  "unlockSeconds": 5,
+  "hotwireChance": 35,
+  "hotwireSeconds": 10,
+  "breakChance": 25
+}
