@@ -11,7 +11,7 @@ Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and 
 
 ## Contracts
 
-- Events: `resource/common/keys.ts`. Exports (own and `qbx_vehiclekeys`): `HasKeys(source, vehicle | plate)`, `GiveKeys`, `RemoveKeys`, `SetLockState(vehicle, state)`, `IsPlayerNearVehicle`.
+- Events: `resource/common/keys.ts`. Exports (own and `qbx_vehiclekeys`): `HasKeys(source, vehicle | plate)`, `GiveKeys`, `RemoveKeys`, `SetLockState(vehicle, state)`, `IsPlayerNearVehicle`. ai-* scripts never call these directly: they use lib `vehicleKeys`, and ai-core's key layer calls them while ai-vehiclekeys is the active key system (`docs/compat/vehicle-keys.md`).
 - Registers the `lockpick` usable item once with ai-core's inventory layer, which hands it to whichever inventory runs (also after it restarts).
 
 ## Entry points
