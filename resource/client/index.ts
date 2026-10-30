@@ -2,6 +2,7 @@ import {
   cache,
   Keybind,
   loadLocaleTexts,
+  nearestVehicle,
   notify,
   onCache,
   onServerEvent,
@@ -17,21 +18,6 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
 const errorOf = (v: unknown): string | null =>
   isObj(v) && v.ok === false && typeof v.error === "string" ? v.error : null;
-
-/** The closest networked vehicle within `metres` (the one the player sits in first). */
-function nearestVehicle(metres: number): number | null {
-  if (cache.vehicle !== false) return cache.vehicle;
-  const { x, y, z } = player.coords();
-  let best: number | null = null;
-  let bestDistance = metres;
-  for (const vehicle of GetGamePool("CVehicle") as number[]) {
-    const [vx = 0, vy = 0, vz = 0] = GetEntityCoords(vehicle, false);
-    const distance = Math.hypot(vx - x, vy - y, vz - z);
-    if (distance < bestDistance && NetworkGetEntityIsNetworked(vehicle))
-      [best, bestDistance] = [vehicle, distance];
-  }
-  return best;
-}
 
 /** L: lock or unlock the nearest vehicle the player has a key to (the server decides and locks). */
 async function toggleLock(): Promise<void> {
