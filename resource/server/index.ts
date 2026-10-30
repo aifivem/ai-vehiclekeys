@@ -1,4 +1,4 @@
-import { AdminPanel, notify, onClientCallback, optionalExport, provideExport, registerExport } from "@aicore-fivem/lib/server";
+import { AdminPanel, inventory, notify, onClientCallback, provideExport, registerExport } from "@aicore-fivem/lib/server";
 import { asArgs } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS, readSettings } from "common/keys";
@@ -41,7 +41,7 @@ onClientCallback(EVENTS.toggleLock, { args: netIdArg, lock: true }, (source, net
 const picks = new Map<number, { token: number; kind: "unlock" | "hotwire"; vehicle: number; startedAt: number; seconds: number }>();
 let nextToken = 0;
 
-/** The lockpick item (ai-inventory): from the driver seat it hotwires, next to a locked vehicle it opens the door. */
+/** The lockpick item: from the driver seat it hotwires, next to a locked vehicle it opens the door. */
 function useLockpick(source: number): boolean {
   const ped = GetPlayerPed(String(source));
   const seat = GetVehiclePedIsIn(ped, false);
@@ -84,17 +84,13 @@ onClientCallback(EVENTS.finishPick, { args: ([token]) => asArgs(typeof token ===
     return { ok: true };
   }
   if (Math.random() * 100 < s.breakChance) {
-    optionalExport("ai-inventory")?.RemoveItem(source, "lockpick", 1);
+    inventory.removeItem(source, "lockpick", 1);
     notify(source, Locale("KEYS_BROKE"), "error");
   } else notify(source, Locale("KEYS_FAILED"), "warning");
   return { ok: true };
 });
 
-const inventory = optionalExport("ai-inventory");
-if (inventory) inventory.RegisterUsableItem("lockpick", (source: number) => useLockpick(source));
-on("onServerResourceStart", (resource: string) => {
-  if (resource === "ai-inventory") optionalExport("ai-inventory")?.RegisterUsableItem("lockpick", (source: number) => useLockpick(source));
-});
+inventory.registerUsableItem("lockpick", (source: number) => useLockpick(source));
 on("playerDropped", () => picks.delete(Number(globalThis.source)));
 
 /** Own exports and qbx_vehiclekeys (`provide qbx_vehiclekeys`): vehicles by entity or plate. */

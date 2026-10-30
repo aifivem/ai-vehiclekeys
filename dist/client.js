@@ -72,11 +72,11 @@ try{
 	}
 
 // ../../../packages/lib/src/client/callback.ts
-	const resource = GetCurrentResourceName();
-	const log$1 = createLogger(resource);
+	const resource$1 = GetCurrentResourceName();
+	const log$1 = createLogger(resource$1);
 	const pending = /* @__PURE__ */ new Map();
 	let nextId = 0;
-	onNet(responseEvent(resource), (id, ok, result) => {
+	onNet(responseEvent(resource$1), (id, ok, result) => {
 		if (!fromServer()) return;
 		const entry = typeof id === "number" ? pending.get(id) : void 0;
 		if (!entry) return;
@@ -101,7 +101,7 @@ try{
 				reject,
 				timer
 			});
-			emitNet(requestEvent(name), resource, id, ...args);
+			emitNet(requestEvent(name), resource$1, id, ...args);
 		});
 	}
 
@@ -127,10 +127,16 @@ try{
 		activeGangChangedEvent: "ai-core:activeGangChanged",
 		/** (src, charIds: number[]) each time a player's character screen loads; an appearance resource answers with portraits. */
 		characterScreenEvent: "ai-core:characterScreen",
+		/** (resource: string | null) the inventory behind ai-core's inventory layer changed (the bridge drops its item cache). */
+		inventoryChangedEvent: "ai-core:inventoryChanged",
+		/** (src, name: string, status: Record<string, number> | null) a player used an item; status = the needs it gives, from inventories that define them. */
+		itemUsedEvent: "ai-core:itemUsed",
 		clientPlayerLoadedEvent: "ai-core:client:playerLoaded",
 		clientPlayerUnloadedEvent: "ai-core:client:playerUnloaded",
 		/** (charId: number, url: string) a portrait image of a character on the character screen (e.g. `https://nui-img/<txd>/<txd>`). */
 		clientCharacterPortraitEvent: "ai-core:client:characterPortrait",
+		/** (charId: number) ai-appearance holds this character's look: ai-core dresses its scene ped with `ApplyCharacterAppearance`. */
+		clientCharacterLookEvent: "ai-core:client:characterLook",
 		/** (resource: string, id: string) the interaction key was pressed while that resource's prompt was on top. */
 		clientPromptPressedEvent: "ai-core:client:promptPressed",
 		/** (key: keyof PlayerCache, value) a cached value of the local player changed (one watcher in ai-core for every resource). */
@@ -145,6 +151,25 @@ try{
 		spawnEvent: "ai-core:client:spawn",
 		/** Server -> client: () the character was let go (switch); show the character screen again. */
 		openCharactersEvent: "ai-core:client:openCharacters"
+	};
+
+// ../../../packages/shared/src/menu.ts
+	const MENU_EVENTS = {
+		/** Client local: (resource, requestId, itemId | null) the player picked an item or closed the menu. */
+		menuResult: "ai-core:client:menuResult",
+		/** Client local: (resource, requestId, itemId) the pointer or focus is on an item (previews). */
+		menuHover: "ai-core:client:menuHover",
+		/** Client local: (resource, requestId, values | null) the player confirmed or closed the input dialog. */
+		inputResult: "ai-core:client:inputResult"
+	};
+
+// ../../../packages/shared/src/commands.ts
+/** Client local events between the lib's `Keybind` and ai-core's client. */
+	const KEYBIND = {
+		/** lib -> ai-core: (info: KeybindInfo) a keybind waits for its default key. */
+		announceEvent: "ai-core:client:keybind",
+		/** ai-core -> lib: (resource, name, key) the default key to register: the panel's value, else the script's. */
+		keyEvent: "ai-core:client:keybindKey"
 	};
 
 // ../../../packages/lib/src/client/cache.ts
@@ -208,6 +233,10 @@ try{
 	function resourceExport(resource) {
 		return globalThis.exports[resource];
 	}
+	/** Whether a resource is running now. */
+	function isResourceStarted(resource) {
+		return GetResourceState(resource) === "started";
+	}
 
 // ../../../packages/lib/src/client/streaming.ts
 /** Loads an animation dictionary. Call `RemoveAnimDict(dict)` when it is no longer played. */
@@ -253,28 +282,95 @@ try{
 		return done;
 	}
 
+// ../../../packages/lib/src/client/menu.ts
+/** Menus and input dialogs this resource asked ai-core for, waiting for the player's answer. */
+	var Requests = class {
+		resource = GetCurrentResourceName();
+		waiting = /* @__PURE__ */ new Map();
+		hovers = /* @__PURE__ */ new Map();
+		nextId = 0;
+		constructor() {
+			const answer = (owner, id, value) => {
+				if (owner !== this.resource || typeof id !== "number") return;
+				this.waiting.get(id)?.(value);
+				this.waiting.delete(id);
+				this.hovers.delete(id);
+			};
+			on(MENU_EVENTS.menuHover, (owner, id, item) => {
+				if (owner === this.resource && typeof id === "number" && typeof item === "string") this.hovers.get(id)?.(item);
+			});
+			on(MENU_EVENTS.menuResult, answer);
+			on(MENU_EVENTS.inputResult, answer);
+		}
+		ask(open, read, onHover) {
+			const id = ++this.nextId;
+			this.waiting.set(id, read);
+			if (onHover) this.hovers.set(id, onHover);
+			open(id);
+		}
+	};
+	const requests = new Requests();
+
 // ../../../packages/lib/src/client/vehicleProps.ts
 	const MOD_TYPES = Array.from({ length: 50 }, (_, i) => i);
 
 // ../../../packages/lib/src/client/keybind.ts
-/** A key the player can rebind in GTA's settings (RegisterKeyMapping); no per-frame key polling. */
+	const resource = GetCurrentResourceName();
+	/** Keybinds of this resource waiting for ai-core's answer (the panel's default key, else their own). */
+	const waiting = /* @__PURE__ */ new Map();
+	let listening = false;
+	/** Asks ai-core's client for the default key (it knows the panel's keybind defaults); without ai-core the script's own. */
+	function requestKey(info, apply) {
+		if (resource !== CORE.resource && !isResourceStarted(CORE.resource)) return apply(info.defaultKey);
+		if (!listening) {
+			listening = true;
+			on(KEYBIND.keyEvent, (owner, name, key) => {
+				if (owner !== resource || typeof name !== "string" || typeof key !== "string") return;
+				const done = waiting.get(name);
+				waiting.delete(name);
+				done?.(key);
+			});
+		}
+		waiting.set(info.name, apply);
+		emit(KEYBIND.announceEvent, info);
+		setTimeout(() => {
+			if (waiting.get(info.name) !== apply) return;
+			waiting.delete(info.name);
+			apply(info.defaultKey);
+		}, 15e3);
+	}
+	/**
+	* A key the player can rebind in GTA's settings (RegisterKeyMapping); no per-frame key polling. The default key
+	* comes from ai-core's admin panel when set there: the mapping command carries the key (`+<name>_<key>`), so a new
+	* default makes a new mapping that every player gets. It is registered once ai-core answered (at start).
+	*/
 	var Keybind = class {
 		options;
 		name;
 		disabled;
 		pressed = false;
-		hash;
+		hash = 0;
 		constructor(options) {
 			this.options = options;
 			this.name = options.name;
 			this.disabled = options.disabled ?? false;
-			this.hash = GetHashKey(`+${options.name}`) | 2147483648;
-			RegisterCommand(`+${options.name}`, () => this.press(true), false);
-			RegisterCommand(`-${options.name}`, () => this.press(false), false);
-			RegisterKeyMapping(`+${options.name}`, options.description, options.defaultMapper ?? "keyboard", options.defaultKey ?? "");
+			requestKey({
+				resource,
+				name: options.name,
+				description: options.description,
+				defaultKey: options.defaultKey ?? "",
+				mapper: options.defaultMapper ?? "keyboard"
+			}, (key) => this.register(key.toUpperCase()));
+		}
+		register(key) {
+			const command = key ? `${this.name}_${key}` : this.name;
+			this.hash = GetHashKey(`+${command}`) | 2147483648;
+			RegisterCommand(`+${command}`, () => this.press(true), false);
+			RegisterCommand(`-${command}`, () => this.press(false), false);
+			RegisterKeyMapping(`+${command}`, this.options.description, this.options.defaultMapper ?? "keyboard", key);
 			setTimeout(() => {
-				emit("chat:removeSuggestion", `/+${options.name}`);
-				emit("chat:removeSuggestion", `/-${options.name}`);
+				emit("chat:removeSuggestion", `/+${command}`);
+				emit("chat:removeSuggestion", `/-${command}`);
 			}, 500);
 		}
 		press(down) {
@@ -287,9 +383,9 @@ try{
 		get isPressed() {
 			return this.pressed;
 		}
-		/** The key the player has bound right now, for HUD hints. */
+		/** The key the player has bound right now, for HUD hints ("" until the mapping is registered). */
 		get currentKey() {
-			return GetControlInstructionalButton(0, this.hash, true).substring(2);
+			return this.hash ? GetControlInstructionalButton(0, this.hash, true).substring(2) : "";
 		}
 		disable(disabled) {
 			this.disabled = disabled;
@@ -435,7 +531,7 @@ try{
 		})) triggerServerCallback(EVENTS.finishPick, [token]).catch(() => null);
 	});
 	new Keybind({
-		name: "vehiclekeys_lock_L",
+		name: "vehiclekeys_lock",
 		description: Locale("KEYBIND_LOCK"),
 		defaultKey: "L",
 		onPressed: () => void toggleLock()

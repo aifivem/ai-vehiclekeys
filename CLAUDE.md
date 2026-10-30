@@ -1,6 +1,6 @@
 # ai-vehiclekeys
 
-Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and the engine block without a key. Stands in for `qbx_vehiclekeys`. Depends on ai-core (characters, jobs, gangs), ai-vehicles (ownership) and ai-inventory (the `lockpick` item, optional). Research and decisions: `docs/research/vehicles.md`.
+Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and the engine block without a key. Stands in for `qbx_vehiclekeys`. Depends on ai-core (characters, jobs, gangs), ai-vehicles (ownership) and the active inventory through ai-core's inventory layer (lib `inventory`) (the `lockpick` item). Research and decisions: `docs/research/vehicles.md`.
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and 
 ## Contracts
 
 - Events: `resource/common/keys.ts`. Exports (own and `qbx_vehiclekeys`): `HasKeys(source, vehicle | plate)`, `GiveKeys`, `RemoveKeys`, `SetLockState(vehicle, state)`, `IsPlayerNearVehicle`.
-- Registers the `lockpick` usable item with ai-inventory (again when ai-inventory restarts).
+- Registers the `lockpick` usable item once with ai-core's inventory layer, which hands it to whichever inventory runs (also after it restarts).
 
 ## Entry points
 

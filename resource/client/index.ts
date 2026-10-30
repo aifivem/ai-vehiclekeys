@@ -85,4 +85,4 @@ onServerEvent(
   },
 );
 
-new Keybind({ name: "vehiclekeys_lock_L", description: Locale("KEYBIND_LOCK"), defaultKey: "L", onPressed: () => void toggleLock() });
+new Keybind({ name: "vehiclekeys_lock", description: Locale("KEYBIND_LOCK"), defaultKey: "L", onPressed: () => void toggleLock() });
