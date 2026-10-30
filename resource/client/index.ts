@@ -62,6 +62,14 @@ class Engine {
     }, 500);
   }
 
+  /** M: the driver switches the engine off, or on again when nothing holds it off (no key). */
+  toggle(): void {
+    const vehicle = cache.vehicle;
+    if (vehicle === false || cache.seat !== -1 || this.blockTimer) return;
+    const running = GetIsVehicleEngineRunning(vehicle);
+    SetVehicleEngineOn(vehicle, !running, false, true);
+  }
+
   release(): void {
     if (!this.blockTimer) return;
     clearInterval(this.blockTimer);
@@ -104,8 +112,17 @@ onServerEvent(
 );
 
 new Keybind({
+  name: "vehiclekeys_engine",
+  description: Locale("KEYBIND_ENGINE"),
+  defaultKey: "M",
+  hint: "vehicle",
+  onPressed: () => engine.toggle(),
+});
+
+new Keybind({
   name: "vehiclekeys_lock",
   description: Locale("KEYBIND_LOCK"),
-  defaultKey: "L",
+  defaultKey: "U",
+  hint: "always",
   onPressed: () => void toggleLock(),
 });

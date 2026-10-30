@@ -26,5 +26,6 @@
   "ADMIN_H_HOTWIRE_CHANCE": "Chance the engine starts; the player then has the keys until leaving the server.",
   "ADMIN_F_HOTWIRE_SECONDS": "Hotwire time",
   "ADMIN_F_BREAK_CHANCE": "Break chance",
-  "ADMIN_H_BREAK_CHANCE": "Chance the lockpick breaks when a try fails."
+  "ADMIN_H_BREAK_CHANCE": "Chance the lockpick breaks when a try fails.",
+  "KEYBIND_ENGINE": "Engine on / off"
 }
