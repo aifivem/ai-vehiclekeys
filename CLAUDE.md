@@ -1,6 +1,6 @@
 # ai-vehiclekeys
 
-Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and the engine block without a key. Stands in for `qbx_vehiclekeys`. Depends on ai-core (characters, jobs, gangs), ai-vehicles (ownership) and the active inventory through ai-core's inventory layer (lib `inventory`) (the `lockpick` item). Research and decisions: `docs/research/vehicles.md`.
+Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and the engine block without a key. Stands in for `qbx_vehiclekeys`. Depends on ai-core (characters, jobs, gangs), ai-vehicles (ownership) and the active inventory through ai-core's inventory layer (lib `inventory`) (the `lockpick` item).
 
 ## Decisions
 
