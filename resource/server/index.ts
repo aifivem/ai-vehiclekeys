@@ -9,8 +9,10 @@ import {
 import { asArgs } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS, readSettings } from "common/keys";
+import "./give";
 import { keys } from "./keys";
 import { keysSchema } from "./schema";
+import { netIdArg, plateOf, vehicleNear } from "./vehicles";
 
 const panel = new AdminPanel(keysSchema);
 /** Panel settings, parsed again after every change. */
@@ -19,30 +21,6 @@ panel.onChange(
   "settings",
   () => (content.settings = readSettings(panel.get("settings"))),
 );
-
-const plateOf = (vehicle: number): string => GetVehicleNumberPlateText(vehicle);
-const netIdArg = ([netId]: unknown[]) =>
-  asArgs(
-    typeof netId === "number" && Number.isInteger(netId) && netId > 0
-      ? netId
-      : null,
-  );
-
-/** A networked vehicle within `metres` of the player, or null. */
-function vehicleNear(
-  source: number,
-  netId: number,
-  metres: number,
-): number | null {
-  const vehicle = NetworkGetEntityFromNetworkId(netId);
-  if (!vehicle || !DoesEntityExist(vehicle) || GetEntityType(vehicle) !== 2)
-    return null;
-  const [px = 0, py = 0, pz = 0] = GetEntityCoords(
-    GetPlayerPed(String(source)),
-  );
-  const [vx = 0, vy = 0, vz = 0] = GetEntityCoords(vehicle);
-  return Math.hypot(px - vx, py - vy, pz - vz) <= metres ? vehicle : null;
-}
 
 onClientCallback(EVENTS.check, { args: netIdArg }, (source, netId) => {
   const vehicle = vehicleNear(source, netId, 6);

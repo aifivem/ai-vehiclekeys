@@ -13,6 +13,8 @@ export const EVENTS = {
   toggleLock: "ai-vehiclekeys:toggleLock",
   /** Callback: (token) -> { ok } the lockpick progress finished. */
   finishPick: "ai-vehiclekeys:finishPick",
+  /** Callback: (netId) -> { ok } give a copy of this vehicle's key to the nearest player (both get a notification). */
+  giveNearest: "ai-vehiclekeys:giveNearest",
 } as const;
 
 export interface Settings {

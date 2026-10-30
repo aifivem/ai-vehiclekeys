@@ -12,6 +12,7 @@ import {
 } from "@aicore-fivem/lib/client";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
+import { seatKey } from "./give";
 
 const texts = loadLocaleTexts();
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -50,10 +51,8 @@ class Engine {
     this.release();
     const vehicle = cache.vehicle;
     if (seat !== -1 || vehicle === false) return;
-    const allowed: unknown = await triggerServerCallback(EVENTS.check, [
-      NetworkGetNetworkIdFromEntity(vehicle),
-    ]).catch(() => false);
-    if (allowed === true || cache.vehicle !== vehicle) return;
+    const allowed = await seatKey.ask(vehicle);
+    if (allowed || cache.vehicle !== vehicle) return;
     SetPedConfigFlag(cache.ped, NO_ENGINE_START, true);
     SetVehicleEngineOn(vehicle, false, true, true);
     this.blockTimer = setInterval(() => {
@@ -66,7 +65,8 @@ class Engine {
   toggle(): void {
     const vehicle = cache.vehicle;
     if (vehicle === false || cache.seat !== -1) return;
-    if (this.blockTimer) return notify(Locale("KEYS_ERR_NO_KEY"), "error", 2500);
+    if (this.blockTimer)
+      return notify(Locale("KEYS_ERR_NO_KEY"), "error", 2500);
     const running = GetIsVehicleEngineRunning(vehicle);
     SetVehicleEngineOn(vehicle, !running, false, true);
   }
@@ -82,6 +82,7 @@ class Engine {
 const engine = new Engine();
 onCache("seat", (seat) => void engine.onSeat(seat));
 onServerEvent(EVENTS.granted, () => {
+  seatKey.set(true);
   engine.release();
   if (cache.vehicle !== false)
     SetVehicleEngineOn(cache.vehicle, true, false, true);
