@@ -118,6 +118,7 @@ new Keybind({
   defaultKey: "M",
   hint: "vehicle",
   icon: "power-off",
+  hintLabel: Locale("HINT_ENGINE"),
   onPressed: () => engine.toggle(),
 });
 
@@ -127,5 +128,6 @@ new Keybind({
   defaultKey: "U",
   hint: "always",
   icon: "lock",
+  hintLabel: Locale("HINT_LOCK"),
   onPressed: () => void toggleLock(),
 });

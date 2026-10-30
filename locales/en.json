@@ -27,5 +27,7 @@
   "ADMIN_F_HOTWIRE_SECONDS": "Hotwire time",
   "ADMIN_F_BREAK_CHANCE": "Break chance",
   "ADMIN_H_BREAK_CHANCE": "Chance the lockpick breaks when a try fails.",
-  "KEYBIND_ENGINE": "Engine on / off"
+  "KEYBIND_ENGINE": "Engine on / off",
+  "HINT_ENGINE": "Engine",
+  "HINT_LOCK": "Lock"
 }
