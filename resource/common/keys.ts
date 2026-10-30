@@ -1,4 +1,4 @@
-import { int, record } from "@aicore-fivem/lib/shared";
+import { int, record } from "@aicore-fivem/lib/shared"
 
 /** ai-vehiclekeys' contracts. No natives. */
 
@@ -13,23 +13,23 @@ export const EVENTS = {
   toggleLock: "ai-vehiclekeys:toggleLock",
   /** Callback: (token) -> { ok } the lockpick progress finished. */
   finishPick: "ai-vehiclekeys:finishPick",
-} as const;
+} as const
 
 export interface Settings {
   /** Metres from the vehicle for the lock key. */
-  lockDistance: number;
+  lockDistance: number
   /** Percent chance a lockpick opens a locked door. */
-  unlockChance: number;
-  unlockSeconds: number;
+  unlockChance: number
+  unlockSeconds: number
   /** Percent chance a lockpick starts the engine from the driver seat (the player gets a key). */
-  hotwireChance: number;
-  hotwireSeconds: number;
+  hotwireChance: number
+  hotwireSeconds: number
   /** Percent chance the lockpick breaks on a failed try. */
-  breakChance: number;
+  breakChance: number
 }
 
 export function readSettings(raw: unknown): Settings {
-  const s = record(raw);
+  const s = record(raw)
   return {
     lockDistance: int(s.lockDistance, 6, 2, 30),
     unlockChance: int(s.unlockChance, 60, 0, 100),
@@ -37,7 +37,8 @@ export function readSettings(raw: unknown): Settings {
     hotwireChance: int(s.hotwireChance, 35, 0, 100),
     hotwireSeconds: int(s.hotwireSeconds, 10, 1, 120),
     breakChance: int(s.breakChance, 25, 0, 100),
-  };
+  }
 }
 
-export const normalizePlate = (plate: string): string => plate.trim().toUpperCase();
+export const normalizePlate = (plate: string): string =>
+  plate.trim().toUpperCase()
