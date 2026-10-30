@@ -1,6 +1,8 @@
 import {
   cache,
   callAction,
+  every,
+  type Job,
   Keybind,
   nearestVehicle,
   notify,
@@ -39,7 +41,7 @@ const NO_ENGINE_START = 429;
  * start it by accelerating, and twice a second it is switched off) until a key arrives (hotwire) or the seat is left.
  */
 class Engine {
-  private blockTimer: ReturnType<typeof setInterval> | null = null;
+  private blockTimer: Job | null = null;
 
   async onSeat(seat: number | false): Promise<void> {
     this.release();
@@ -49,10 +51,15 @@ class Engine {
     if (allowed || cache.vehicle !== vehicle) return;
     SetPedConfigFlag(cache.ped, NO_ENGINE_START, true);
     SetVehicleEngineOn(vehicle, false, true, true);
-    this.blockTimer = setInterval(() => {
-      if (cache.vehicle !== vehicle || cache.seat !== -1) return this.release();
-      SetVehicleEngineOn(vehicle, false, true, true);
-    }, 500);
+    this.blockTimer = every(
+      500,
+      () => {
+        if (cache.vehicle !== vehicle || cache.seat !== -1)
+          return this.release();
+        SetVehicleEngineOn(vehicle, false, true, true);
+      },
+      { name: "engineBlock" },
+    );
   }
 
   /** M: the driver switches the engine off, or on again when nothing holds it off (no key). */
@@ -67,7 +74,7 @@ class Engine {
 
   release(): void {
     if (!this.blockTimer) return;
-    clearInterval(this.blockTimer);
+    this.blockTimer.stop();
     this.blockTimer = null;
     SetPedConfigFlag(cache.ped, NO_ENGINE_START, false);
   }
