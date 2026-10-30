@@ -36,9 +36,12 @@ async function toggleLock(): Promise<void> {
   }
 }
 
+/** Ped config flag: the ped does not start a vehicle's engine by accelerating. */
+const NO_ENGINE_START = 429;
+
 /**
- * Without a key the engine stays off: asked once when the player takes a driver seat, then held off twice a second
- * until a key arrives (hotwire) or the player leaves the seat.
+ * Without a key the engine stays off: asked once when the player takes a driver seat, then held off (the ped cannot
+ * start it by accelerating, and twice a second it is switched off) until a key arrives (hotwire) or the seat is left.
  */
 class Engine {
   private blockTimer: ReturnType<typeof setInterval> | null = null;
@@ -51,6 +54,7 @@ class Engine {
       NetworkGetNetworkIdFromEntity(vehicle),
     ]).catch(() => false);
     if (allowed === true || cache.vehicle !== vehicle) return;
+    SetPedConfigFlag(cache.ped, NO_ENGINE_START, true);
     SetVehicleEngineOn(vehicle, false, true, true);
     this.blockTimer = setInterval(() => {
       if (cache.vehicle !== vehicle || cache.seat !== -1) return this.release();
@@ -59,8 +63,10 @@ class Engine {
   }
 
   release(): void {
-    if (this.blockTimer) clearInterval(this.blockTimer);
+    if (!this.blockTimer) return;
+    clearInterval(this.blockTimer);
     this.blockTimer = null;
+    SetPedConfigFlag(cache.ped, NO_ENGINE_START, false);
   }
 }
 
