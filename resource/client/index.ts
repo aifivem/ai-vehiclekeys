@@ -1,34 +1,28 @@
 import {
   cache,
+  callAction,
   Keybind,
-  loadLocaleTexts,
   nearestVehicle,
   notify,
   onCache,
   onServerEvent,
-  player,
   progress,
-  triggerServerCallback,
 } from "@aicore-fivem/lib/client";
+import { readFinite, readId } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 import { seatKey } from "./give";
-
-const texts = loadLocaleTexts();
-const isObj = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null;
-const errorOf = (v: unknown): string | null =>
-  isObj(v) && v.ok === false && typeof v.error === "string" ? v.error : null;
 
 /** L: lock or unlock the nearest vehicle the player has a key to (the server decides and locks). */
 async function toggleLock(): Promise<void> {
   const vehicle = nearestVehicle(10);
   if (!vehicle) return;
-  const result: unknown = await triggerServerCallback(EVENTS.toggleLock, [
-    NetworkGetNetworkIdFromEntity(vehicle),
-  ]).catch(() => null);
-  const error = errorOf(result);
-  if (error) return notify(texts[error] ?? error, "error", 2500);
+  const result = await callAction(
+    EVENTS.toggleLock,
+    [NetworkGetNetworkIdFromEntity(vehicle)],
+    { fallback: "KEYS_ERR_FAR" },
+  );
+  if (!result) return;
   if (cache.vehicle === false) {
     // Key fob feedback: lights flash, a short horn.
     SetVehicleLights(vehicle, 2);
@@ -91,12 +85,15 @@ onServerEvent(EVENTS.granted, () => {
 onServerEvent(
   EVENTS.startPick,
   {
-    args: ([kind, token, seconds]) =>
-      (kind === "unlock" || kind === "hotwire") &&
-      typeof token === "number" &&
-      typeof seconds === "number"
-        ? [kind, token, seconds]
-        : null,
+    args: ([kind, token, seconds]) => {
+      const id = readId(token);
+      const time = readFinite(seconds);
+      return (kind === "unlock" || kind === "hotwire") &&
+        id !== null &&
+        time !== null
+        ? [kind, id, time]
+        : null;
+    },
   },
   async (kind, token, seconds) => {
     const done = await progress({
@@ -109,7 +106,9 @@ onServerEvent(
       allowVehicle: kind === "hotwire",
     });
     if (done)
-      void triggerServerCallback(EVENTS.finishPick, [token]).catch(() => null);
+      void callAction(EVENTS.finishPick, [token], {
+        fallback: "KEYS_ERR_FAR",
+      });
   },
 );
 

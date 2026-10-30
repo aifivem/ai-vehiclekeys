@@ -1,54 +1,42 @@
 import {
+  nearestPlayerTo,
   notify,
   onClientCallback,
   online,
-  playersNear,
+  vehicleNearPlayer,
 } from "@aicore-fivem/lib/server";
+import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
-import { EVENTS, normalizePlate } from "common/keys";
+import { EVENTS } from "common/keys";
 import { keys } from "./keys";
-import { netIdArg, plateOf, vehicleNear } from "./vehicles";
+import { plateOf } from "./vehicles";
 
 /** How close the other player must stand to take the keys. */
 const GIVE_METRES = 3;
 
-/** The closest other player with a loaded character within `metres`, or null. */
-function nearestPlayer(source: number, metres: number): number | null {
-  const [x = 0, y = 0, z = 0] = GetEntityCoords(GetPlayerPed(String(source)));
-  let best: number | null = null;
-  let bestDistance = Infinity;
-  for (const other of playersNear(source, metres)) {
-    if (other === source || !online.character(other)) continue;
-    const [ox = 0, oy = 0, oz = 0] = GetEntityCoords(
-      GetPlayerPed(String(other)),
-    );
-    const distance = Math.hypot(ox - x, oy - y, oz - z);
-    if (distance < bestDistance) {
-      best = other;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
+/** The giver's client sends no `callAction` (a radial item), so the server shows the refusal itself. */
 const refuse = (
   source: number,
   error: "KEYS_ERR_FAR" | "KEYS_ERR_NO_KEY" | "KEYS_ERR_NOBODY",
 ) => {
   notify(source, Locale(error), "error", 2500);
-  return { ok: false, error };
+  return fail(error);
 };
 
 /** The radial "give the keys" item: a copy of the key of the vehicle the giver sits in or stands at, to the nearest player. */
 onClientCallback(
   EVENTS.giveNearest,
-  { args: netIdArg, lock: true },
+  { args: oneArg(readId), lock: true },
   (source, netId) => {
-    const vehicle = vehicleNear(source, netId, 6);
-    if (vehicle === null) return refuse(source, "KEYS_ERR_FAR");
-    const plate = normalizePlate(plateOf(vehicle));
+    const vehicle = vehicleNearPlayer(source, netId, { metres: 6 });
+    if (!vehicle) return refuse(source, "KEYS_ERR_FAR");
+    const plate = plateOf(vehicle);
     if (!keys.has(source, plate)) return refuse(source, "KEYS_ERR_NO_KEY");
-    const target = nearestPlayer(source, GIVE_METRES);
+    const target = nearestPlayerTo(
+      source,
+      GIVE_METRES,
+      (other) => online.character(other) !== null,
+    );
     if (target === null) return refuse(source, "KEYS_ERR_NOBODY");
     keys.give(target, plate);
     notify(source, Locale("KEYS_GAVE", plate), "success");

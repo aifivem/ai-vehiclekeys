@@ -40,8 +40,17 @@ function int(value, fallback, min = -Infinity, max = Infinity) {
 function record(value) {
 	return typeof value == "object" && value && !Array.isArray(value) ? value : {};
 }
-// ../../../packages/lib/src/shared/records.ts
-const isObject = (value) => typeof value == "object" && !!value && !Array.isArray(value);
+// ../../../packages/lib/src/shared/strict.ts
+function readInt(value, min, max) {
+	return Number.isInteger(value) && value >= min && value <= max ? value : null;
+}
+const readId = (value) => readInt(value, 1, 2147483647), oneArg = (read) => ([value]) => {
+	let parsed = read(value);
+	return parsed === null ? null : [parsed];
+}, fail = (error) => ({
+	ok: !1,
+	error
+}), isObject = (value) => typeof value == "object" && !!value && !Array.isArray(value);
 function readRecords(raw, readOne) {
 	let out = new Map();
 	if (!isObject(raw)) return out;
@@ -134,7 +143,6 @@ function formatText(template, args) {
 		return value === void 0 ? match : String(value);
 	});
 }
-const asArgs = (value) => value === null ? null : [value];
 function createLogger(resource) {
 	let prefix = `[${resource}]`;
 	return {
@@ -209,7 +217,7 @@ const CORE = {
 	clientPlayerLoadedEvent: "ai-core:client:playerLoaded",
 	clientPlayerUnloadedEvent: "ai-core:client:playerUnloaded",
 	clientCharacterPortraitEvent: "ai-core:client:characterPortrait",
-	clientCharacterLookEvent: "ai-core:client:characterLook",
+	characterLooksEvent: "ai-core:client:characterLooks",
 	clientPromptPressedEvent: "ai-core:client:promptPressed",
 	clientCacheEvent: "ai-core:client:cache",
 	clientHudVisibleEvent: "ai-core:client:hudVisible",
@@ -283,6 +291,10 @@ function entityCoords(entity) {
 	};
 }
 const coordsOf = (source) => entityCoords(GetPlayerPed(String(source)));
+function isNear(source, point, metres) {
+	let [x = 0, y = 0, z = 0] = GetEntityCoords(GetPlayerPed(String(source))), dx = x - point.x, dy = y - point.y, dz = z - point.z;
+	return dx * dx + dy * dy + dz * dz <= metres * metres;
+}
 resourceExport(CORE.resource);
 const log$5 = createLogger(GetCurrentResourceName()), gates = new Set();
 on("playerDropped", () => {
@@ -874,20 +886,118 @@ var OnlinePlayers = class {
 };
 const EMPTY = new Set(), online = new OnlinePlayers();
 resourceExport(CORE.resource);
+// ../../../packages/lib/src/server/vehicle.ts
+function nearestVehicleTo(source, metres, filter) {
+	let ped = GetPlayerPed(String(source)), own = GetVehiclePedIsIn(ped, !1);
+	if (own && (!filter || filter(own))) return own;
+	let [x = 0, y = 0, z = 0] = GetEntityCoords(ped), best = 0, bestDistance = metres;
+	for (let vehicle of GetAllVehicles()) {
+		let [vx = 0, vy = 0, vz = 0] = GetEntityCoords(vehicle), d = Math.hypot(vx - x, vy - y, vz - z);
+		d < bestDistance && (!filter || filter(vehicle)) && ([best, bestDistance] = [vehicle, d]);
+	}
+	return best;
+}
+function vehicleFromNet(netId) {
+	if (readId(netId) === null) return 0;
+	let entity = NetworkGetEntityFromNetworkId(netId);
+	return entity && DoesEntityExist(entity) && GetEntityType(entity) === 2 ? entity : 0;
+}
+function vehicleNearPlayer(source, netId, options = {}) {
+	let vehicle = vehicleFromNet(netId);
+	if (!vehicle) return 0;
+	let ped = GetPlayerPed(String(source));
+	if (options.driver) return GetPedInVehicleSeat(vehicle, -1) === ped ? vehicle : 0;
+	let [px = 0, py = 0, pz = 0] = GetEntityCoords(ped), [vx = 0, vy = 0, vz = 0] = GetEntityCoords(vehicle);
+	return Math.hypot(vx - px, vy - py, vz - pz) <= (options.metres ?? 5) ? vehicle : 0;
+}
 // ../../../packages/lib/src/server/proximity.ts
 const core$9 = resourceExport(CORE.resource);
-function within(point, radius, candidates) {
-	let out = [];
-	for (let source of candidates) {
-		let p = coordsOf(source);
-		Math.hypot(p.x - point.x, p.y - point.y, p.z - point.z) <= radius && out.push(source);
+function nearestPlayerTo(source, metres, filter) {
+	let from = coordsOf(source), best = null, bestDistance = metres;
+	for (let other of core$9.GetPlayersInScope(source)) {
+		if (other === source) continue;
+		let p = coordsOf(other), d = Math.hypot(p.x - from.x, p.y - from.y, p.z - from.z);
+		d > bestDistance || filter && !filter(other) || (best = other, bestDistance = d);
 	}
-	return out;
+	return best;
 }
-function playersNear(source, radius) {
-	return within(coordsOf(source), radius, [source, ...core$9.GetPlayersInScope(source)]);
+// ../../../packages/lib/src/server/players.ts
+const log$3 = createLogger(GetCurrentResourceName()), dropped = new Set();
+let listening = !1;
+function onDropped(fn) {
+	listening || (listening = !0, on("playerDropped", () => {
+		let source = Number(globalThis.source);
+		for (let handler of dropped) handler(source);
+	})), dropped.add(fn);
 }
-createLogger(GetCurrentResourceName());
+var PlayerMap = class extends Map {
+	constructor(options = {}) {
+		super(), onDropped((source) => {
+			if (!this.has(source)) return;
+			let value = this.get(source);
+			this.delete(source), options.onDrop?.(source, value);
+		});
+	}
+};
+function onCharacter(handlers) {
+	let live = new Map(), deliver = (source, character) => {
+		if (live.set(source, character.id), handlers.loaded) try {
+			let result = handlers.loaded(source, character);
+			result instanceof Promise && result.catch((error) => log$3.error(`character loaded handler failed for ${source}`, error));
+		} catch (error) {
+			log$3.error(`character loaded handler failed for ${source}`, error);
+		}
+	}, end = (source, charId) => {
+		if (live.delete(source)) try {
+			handlers.unloaded?.(source, charId);
+		} catch (error) {
+			log$3.error(`character unloaded handler failed for ${source}`, error);
+		}
+	};
+	on(CORE.playerLoadedEvent, (source, character) => {
+		let previous = live.get(source);
+		previous !== void 0 && end(source, previous), deliver(source, character);
+	}), on(CORE.playerUnloadedEvent, (source, charId) => end(source, charId)), onDropped((source) => setImmediate(() => {
+		let charId = live.get(source);
+		charId !== void 0 && end(source, charId);
+	})), setImmediate(() => {
+		for (let source of online.sources()) {
+			if (live.has(source)) continue;
+			let character = online.character(source);
+			character && deliver(source, character);
+		}
+	});
+}
+// ../../../packages/lib/src/server/pending.ts
+var PendingActions = class {
+	actions = new PlayerMap();
+	minRatio;
+	next = 0;
+	constructor(options = {}) {
+		this.minRatio = options.minRatio ?? .8;
+	}
+	start(source, data, durationMs) {
+		return this.next = this.next >= 2147483647 ? 1 : this.next + 1, this.actions.set(source, {
+			token: this.next,
+			data,
+			startedAt: GetGameTimer(),
+			durationMs
+		}), this.next;
+	}
+	take(source, token) {
+		let action = this.actions.get(source);
+		return !action || action.token !== token ? null : (this.actions.delete(source), GetGameTimer() - action.startedAt >= action.durationMs * this.minRatio ? action.data : null);
+	}
+	peek(source) {
+		return this.actions.get(source)?.data ?? null;
+	}
+	cancel(source) {
+		this.actions.delete(source);
+	}
+	get size() {
+		return this.actions.size;
+	}
+};
 // ../../../packages/lib/src/server/command.ts
 const resource = GetCurrentResourceName();
 createLogger(resource), new class {
@@ -915,7 +1025,7 @@ createLogger(resource), new class {
 			if (name === resource) for (let command of this.list) for (let n of command.info.names) emitNet("chat:removeSuggestion", -1, `/${n}`);
 		});
 	}
-}(), createLogger(GetCurrentResourceName()), createLogger("aicore-lib"), IsDuplicityVersion(), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource);
+}(), createLogger(GetCurrentResourceName()), createLogger("aicore-lib"), IsDuplicityVersion(), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource), resourceExport(CORE.resource);
 // resource/common/locale.ts
 const Locale = createLocale();
 GetCurrentResourceName(), IsDuplicityVersion();
@@ -939,8 +1049,8 @@ function readSettings(raw) {
 		breakChance: int(s.breakChance, 25, 0, 100)
 	};
 }
-const normalizePlate = (plate) => plate.trim().toUpperCase(), core = resourceExport("ai-core"), vehiclesApi = resourceExport("ai-vehicles"), keys = new class {
-	extra = new Map();
+const normalizePlate = (plate) => plate.trim().toUpperCase(), vehiclesApi = resourceExport("ai-vehicles"), keys = new class {
+	extra = new PlayerMap();
 	load(source) {
 		this.extra.set(source, new Set());
 	}
@@ -953,7 +1063,7 @@ const normalizePlate = (plate) => plate.trim().toUpperCase(), core = resourceExp
 		let vehicle = vehiclesApi.GetVehicle(p);
 		if (!vehicle) return !1;
 		let { type, id } = vehicle.owner;
-		return type === "character" ? String(core.GetCharacter(source)?.id ?? "") === id : type === "job" ? (core.GetJobs(source) ?? []).some((m) => m.job === id) : (core.GetGangs(source) ?? []).some((m) => m.gang === id);
+		return type === "character" ? String(online.character(source)?.id ?? "") === id : type === "job" ? online.jobs(source).includes(id) : online.gangs(source).includes(id);
 	}
 	give(source, plate) {
 		let set = this.extra.get(source), p = normalizePlate(plate);
@@ -967,38 +1077,21 @@ const normalizePlate = (plate) => plate.trim().toUpperCase(), core = resourceExp
 		this.extra.get(source)?.delete(p);
 	}
 }();
-on(CORE.playerLoadedEvent, (source, _character) => keys.load(source)), on(CORE.playerUnloadedEvent, (source) => keys.drop(source)), on("playerDropped", () => keys.drop(Number(globalThis.source)));
-for (let source of core.GetLoadedSources()) keys.load(source);
-// resource/server/vehicles.ts
-const plateOf = (vehicle) => GetVehicleNumberPlateText(vehicle), netIdArg = ([netId]) => asArgs(typeof netId == "number" && Number.isInteger(netId) && netId > 0 ? netId : null);
-function vehicleNear(source, netId, metres) {
-	let vehicle = NetworkGetEntityFromNetworkId(netId);
-	if (!vehicle || !DoesEntityExist(vehicle) || GetEntityType(vehicle) !== 2) return null;
-	let [px = 0, py = 0, pz = 0] = GetEntityCoords(GetPlayerPed(String(source))), [vx = 0, vy = 0, vz = 0] = GetEntityCoords(vehicle);
-	return Math.hypot(px - vx, py - vy, pz - vz) <= metres ? vehicle : null;
-}
-function nearestPlayer(source, metres) {
-	let [x = 0, y = 0, z = 0] = GetEntityCoords(GetPlayerPed(String(source))), best = null, bestDistance = Infinity;
-	for (let other of playersNear(source, metres)) {
-		if (other === source || !online.character(other)) continue;
-		let [ox = 0, oy = 0, oz = 0] = GetEntityCoords(GetPlayerPed(String(other))), distance = Math.hypot(ox - x, oy - y, oz - z);
-		distance < bestDistance && (best = other, bestDistance = distance);
-	}
-	return best;
-}
-const refuse = (source, error) => (notify(source, Locale(error), "error", 2500), {
-	ok: !1,
-	error
+onCharacter({
+	loaded: (source) => keys.load(source),
+	unloaded: (source) => keys.drop(source)
 });
+// resource/server/vehicles.ts
+const plateOf = (vehicle) => normalizePlate(GetVehicleNumberPlateText(vehicle)), refuse = (source, error) => (notify(source, Locale(error), "error", 2500), fail(error));
 onClientCallback(EVENTS.giveNearest, {
-	args: netIdArg,
+	args: oneArg(readId),
 	lock: !0
 }, (source, netId) => {
-	let vehicle = vehicleNear(source, netId, 6);
-	if (vehicle === null) return refuse(source, "KEYS_ERR_FAR");
-	let plate = normalizePlate(plateOf(vehicle));
+	let vehicle = vehicleNearPlayer(source, netId, { metres: 6 });
+	if (!vehicle) return refuse(source, "KEYS_ERR_FAR");
+	let plate = plateOf(vehicle);
 	if (!keys.has(source, plate)) return refuse(source, "KEYS_ERR_NO_KEY");
-	let target = nearestPlayer(source, 3);
+	let target = nearestPlayerTo(source, 3, (other) => online.character(other) !== null);
 	return target === null ? refuse(source, "KEYS_ERR_NOBODY") : (keys.give(target, plate), notify(source, Locale("KEYS_GAVE", plate), "success"), notify(target, Locale("KEYS_RECEIVED", plate), "success"), { ok: !0 });
 });
 // resource/server/schema.ts
@@ -1012,7 +1105,7 @@ const pct = {
 	min: 1,
 	max: 120,
 	integer: !0
-}, panel = new AdminPanel({
+}, settings = new AdminPanel({
 	title: "ADMIN_TITLE",
 	icon: "key",
 	files: { settings: {
@@ -1102,65 +1195,49 @@ const pct = {
 			]
 		}]
 	}]
-}), content = { settings: readSettings(panel.get("settings")) };
-panel.onChange("settings", () => content.settings = readSettings(panel.get("settings"))), onClientCallback(EVENTS.check, { args: netIdArg }, (source, netId) => {
-	let vehicle = vehicleNear(source, netId, 6);
-	return vehicle !== null && keys.has(source, plateOf(vehicle));
+}).view("settings", readSettings);
+onClientCallback(EVENTS.check, { args: oneArg(readId) }, (source, netId) => {
+	let vehicle = vehicleNearPlayer(source, netId, { metres: 6 });
+	return vehicle !== 0 && keys.has(source, plateOf(vehicle));
 }), onClientCallback(EVENTS.toggleLock, {
-	args: netIdArg,
+	args: oneArg(readId),
 	lock: !0
 }, (source, netId) => {
-	let vehicle = vehicleNear(source, netId, content.settings.lockDistance);
-	if (vehicle === null) return {
-		ok: !1,
-		error: "KEYS_ERR_FAR"
-	};
-	if (!keys.has(source, plateOf(vehicle))) return {
-		ok: !1,
-		error: "KEYS_ERR_NO_KEY"
-	};
+	let vehicle = vehicleNearPlayer(source, netId, { metres: settings.value.lockDistance });
+	if (!vehicle) return fail("KEYS_ERR_FAR");
+	if (!keys.has(source, plateOf(vehicle))) return fail("KEYS_ERR_NO_KEY");
 	let locked = GetVehicleDoorLockStatus(vehicle) >= 2;
 	return SetVehicleDoorsLocked(vehicle, locked ? 1 : 2), notify(source, Locale(locked ? "KEYS_UNLOCKED" : "KEYS_LOCKED"), "success", 2e3), {
 		ok: !0,
 		locked: !locked
 	};
 });
-const picks = new Map();
-let nextToken = 0;
+const picks = new PendingActions();
 function useLockpick(source) {
-	let ped = GetPlayerPed(String(source)), seat = GetVehiclePedIsIn(ped, !1), s = content.settings, kind, vehicle;
+	let ped = GetPlayerPed(String(source)), seat = GetVehiclePedIsIn(ped, !1), s = settings.value, kind, vehicle;
 	if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
 		if (keys.has(source, plateOf(seat))) return !1;
 		kind = "hotwire", vehicle = seat;
 	} else {
-		let [x = 0, y = 0, z = 0] = GetEntityCoords(ped), near = GetAllVehicles().find((v) => {
-			let [vx = 0, vy = 0, vz = 0] = GetEntityCoords(v);
-			return Math.hypot(vx - x, vy - y, vz - z) <= 3 && GetVehicleDoorLockStatus(v) >= 2;
-		});
+		let near = nearestVehicleTo(source, 3, (v) => GetVehicleDoorLockStatus(v) >= 2);
 		if (!near) return !1;
 		kind = "unlock", vehicle = near;
 	}
-	let token = ++nextToken, seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
-	return picks.set(source, {
-		token,
+	let seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds, token = picks.start(source, {
 		kind,
-		vehicle,
-		startedAt: Date.now(),
-		seconds
-	}), emitNet(EVENTS.startPick, source, kind, token, seconds), !1;
+		vehicle
+	}, seconds * 1e3);
+	return emitNet(EVENTS.startPick, source, kind, token, seconds), !1;
 }
 onClientCallback(EVENTS.finishPick, {
-	args: ([token]) => asArgs(typeof token == "number" ? token : null),
+	args: oneArg(readId),
 	lock: !0
 }, (source, token) => {
-	let pick = picks.get(source);
-	if (!pick || pick.token !== token || (picks.delete(source), Date.now() - pick.startedAt < pick.seconds * 800 || !DoesEntityExist(pick.vehicle))) return {
-		ok: !1,
-		error: "KEYS_ERR_FAR"
-	};
-	let s = content.settings;
+	let pick = picks.take(source, token);
+	if (!pick || !DoesEntityExist(pick.vehicle) || !isNear(source, entityCoords(pick.vehicle), 4)) return fail("KEYS_ERR_FAR");
+	let s = settings.value;
 	return Math.random() * 100 < (pick.kind === "hotwire" ? s.hotwireChance : s.unlockChance) ? (pick.kind === "hotwire" ? keys.give(source, plateOf(pick.vehicle)) : SetVehicleDoorsLocked(pick.vehicle, 1), notify(source, Locale(pick.kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"), "success"), { ok: !0 }) : (Math.random() * 100 < s.breakChance ? (inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error")) : notify(source, Locale("KEYS_FAILED"), "warning"), { ok: !0 });
-}), inventory.registerUsableItem("lockpick", (source) => useLockpick(source)), on("playerDropped", () => picks.delete(Number(globalThis.source)));
+}), inventory.registerUsableItem("lockpick", (source) => useLockpick(source));
 const plateFrom = (vehicle) => typeof vehicle == "string" ? vehicle : typeof vehicle == "number" && DoesEntityExist(vehicle) ? plateOf(vehicle) : null, api = {
 	HasKeys: (source, vehicle) => {
 		let plate = plateFrom(vehicle);
@@ -1177,6 +1254,6 @@ const plateFrom = (vehicle) => typeof vehicle == "string" ? vehicle : typeof veh
 	SetLockState: (vehicle, state) => {
 		typeof vehicle == "number" && DoesEntityExist(vehicle) && SetVehicleDoorsLocked(vehicle, state === "lock" || state === !0 || state === 2 ? 2 : 1);
 	},
-	IsPlayerNearVehicle: (source, vehicle) => typeof source == "number" && typeof vehicle == "number" && vehicleNear(source, NetworkGetNetworkIdFromEntity(vehicle), 5) !== null
+	IsPlayerNearVehicle: (source, vehicle) => typeof source == "number" && typeof vehicle == "number" && vehicleNearPlayer(source, NetworkGetNetworkIdFromEntity(vehicle)) !== 0
 };
 for (let [name, fn] of Object.entries(api)) registerExport(name, fn), provideExport("qbx_vehiclekeys", name, fn);

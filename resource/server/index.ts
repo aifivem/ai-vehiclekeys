@@ -1,40 +1,42 @@
 import {
   AdminPanel,
   inventory,
+  isNear,
+  entityCoords,
+  nearestVehicleTo,
   notify,
   onClientCallback,
+  PendingActions,
   provideExport,
   registerExport,
+  vehicleNearPlayer,
 } from "@aicore-fivem/lib/server";
-import { asArgs } from "@aicore-fivem/lib/shared";
+import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS, readSettings } from "common/keys";
 import "./give";
 import { keys } from "./keys";
 import { keysSchema } from "./schema";
-import { netIdArg, plateOf, vehicleNear } from "./vehicles";
+import { plateOf } from "./vehicles";
 
 const panel = new AdminPanel(keysSchema);
-/** Panel settings, parsed again after every change. */
-const content = { settings: readSettings(panel.get("settings")) };
-panel.onChange(
-  "settings",
-  () => (content.settings = readSettings(panel.get("settings"))),
-);
+/** Panel settings, kept current by the panel. */
+const settings = panel.view("settings", readSettings);
 
-onClientCallback(EVENTS.check, { args: netIdArg }, (source, netId) => {
-  const vehicle = vehicleNear(source, netId, 6);
-  return vehicle !== null && keys.has(source, plateOf(vehicle));
+onClientCallback(EVENTS.check, { args: oneArg(readId) }, (source, netId) => {
+  const vehicle = vehicleNearPlayer(source, netId, { metres: 6 });
+  return vehicle !== 0 && keys.has(source, plateOf(vehicle));
 });
 
 onClientCallback(
   EVENTS.toggleLock,
-  { args: netIdArg, lock: true },
+  { args: oneArg(readId), lock: true },
   (source, netId) => {
-    const vehicle = vehicleNear(source, netId, content.settings.lockDistance);
-    if (vehicle === null) return { ok: false, error: "KEYS_ERR_FAR" };
-    if (!keys.has(source, plateOf(vehicle)))
-      return { ok: false, error: "KEYS_ERR_NO_KEY" };
+    const vehicle = vehicleNearPlayer(source, netId, {
+      metres: settings.value.lockDistance,
+    });
+    if (!vehicle) return fail("KEYS_ERR_FAR");
+    if (!keys.has(source, plateOf(vehicle))) return fail("KEYS_ERR_NO_KEY");
     const locked = GetVehicleDoorLockStatus(vehicle) >= 2;
     SetVehicleDoorsLocked(vehicle, locked ? 1 : 2);
     notify(
@@ -47,24 +49,19 @@ onClientCallback(
   },
 );
 
-/** Lockpick tries waiting for their progress bar: checked against the time they need. */
-const picks = new Map<
-  number,
-  {
-    token: number;
-    kind: "unlock" | "hotwire";
-    vehicle: number;
-    startedAt: number;
-    seconds: number;
-  }
->();
-let nextToken = 0;
+/** Lockpick tries waiting for their progress bar: a finish before 80 % of the time is refused. */
+const picks = new PendingActions<{
+  kind: "unlock" | "hotwire";
+  vehicle: number;
+}>();
+/** How far a player may move from the vehicle while picking. */
+const PICK_REACH = 4;
 
 /** The lockpick item: from the driver seat it hotwires, next to a locked vehicle it opens the door. */
 function useLockpick(source: number): boolean {
   const ped = GetPlayerPed(String(source));
   const seat = GetVehiclePedIsIn(ped, false);
-  const s = content.settings;
+  const s = settings.value;
   let kind: "unlock" | "hotwire";
   let vehicle: number;
   if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
@@ -72,21 +69,18 @@ function useLockpick(source: number): boolean {
     kind = "hotwire";
     vehicle = seat;
   } else {
-    const [x = 0, y = 0, z = 0] = GetEntityCoords(ped);
-    const near = (GetAllVehicles() as number[]).find((v) => {
-      const [vx = 0, vy = 0, vz = 0] = GetEntityCoords(v);
-      return (
-        Math.hypot(vx - x, vy - y, vz - z) <= 3 &&
-        GetVehicleDoorLockStatus(v) >= 2
-      );
-    });
+    // The nearest locked vehicle within 3 m (not merely the first one found).
+    const near = nearestVehicleTo(
+      source,
+      3,
+      (v) => GetVehicleDoorLockStatus(v) >= 2,
+    );
     if (!near) return false;
     kind = "unlock";
     vehicle = near;
   }
-  const token = ++nextToken;
   const seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
-  picks.set(source, { token, kind, vehicle, startedAt: Date.now(), seconds });
+  const token = picks.start(source, { kind, vehicle }, seconds * 1000);
   emitNet(EVENTS.startPick, source, kind, token, seconds);
   // The lockpick is spent only when it breaks (finishPick).
   return false;
@@ -95,20 +89,19 @@ function useLockpick(source: number): boolean {
 onClientCallback(
   EVENTS.finishPick,
   {
-    args: ([token]) => asArgs(typeof token === "number" ? token : null),
+    args: oneArg(readId),
     lock: true,
   },
   (source, token) => {
-    const pick = picks.get(source);
-    if (!pick || pick.token !== token)
-      return { ok: false, error: "KEYS_ERR_FAR" };
-    picks.delete(source);
+    const pick = picks.take(source, token);
+    // Still at the vehicle when the progress ends (in its driver seat for a hotwire).
     if (
-      Date.now() - pick.startedAt < pick.seconds * 800 ||
-      !DoesEntityExist(pick.vehicle)
+      !pick ||
+      !DoesEntityExist(pick.vehicle) ||
+      !isNear(source, entityCoords(pick.vehicle), PICK_REACH)
     )
-      return { ok: false, error: "KEYS_ERR_FAR" };
-    const s = content.settings;
+      return fail("KEYS_ERR_FAR");
+    const s = settings.value;
     const success =
       Math.random() * 100 <
       (pick.kind === "hotwire" ? s.hotwireChance : s.unlockChance);
@@ -133,7 +126,6 @@ onClientCallback(
 inventory.registerUsableItem("lockpick", (source: number) =>
   useLockpick(source),
 );
-on("playerDropped", () => picks.delete(Number(globalThis.source)));
 
 /** Own exports and qbx_vehiclekeys (`provide qbx_vehiclekeys`): vehicles by entity or plate. */
 const plateFrom = (vehicle: unknown): string | null =>
@@ -167,7 +159,7 @@ const api: Record<string, (...args: unknown[]) => unknown> = {
   IsPlayerNearVehicle: (source, vehicle) =>
     typeof source === "number" &&
     typeof vehicle === "number" &&
-    vehicleNear(source, NetworkGetNetworkIdFromEntity(vehicle), 5) !== null,
+    vehicleNearPlayer(source, NetworkGetNetworkIdFromEntity(vehicle)) !== 0,
 };
 for (const [name, fn] of Object.entries(api)) {
   registerExport(name, fn);
