@@ -1,4 +1,4 @@
-import { cache, Keybind, loadLocaleTexts, notify, onCache, onServerEvent, progress, triggerServerCallback } from "@aicore-fivem/lib/client";
+import { cache, Keybind, loadLocaleTexts, notify, onCache, onServerEvent, player, progress, triggerServerCallback } from "@aicore-fivem/lib/client";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 
@@ -9,7 +9,7 @@ const errorOf = (v: unknown): string | null => (isObj(v) && v.ok === false && ty
 /** The closest networked vehicle within `metres` (the one the player sits in first). */
 function nearestVehicle(metres: number): number | null {
   if (cache.vehicle !== false) return cache.vehicle;
-  const [x = 0, y = 0, z = 0] = GetEntityCoords(cache.ped, false);
+  const { x, y, z } = player.coords();
   let best: number | null = null;
   let bestDistance = metres;
   for (const vehicle of GetGamePool("CVehicle") as number[]) {

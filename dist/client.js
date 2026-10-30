@@ -15,7 +15,11 @@ try{
 	const DEFAULT_CALLBACK_TIMEOUT = 3e4;
 
 // ../../../packages/lib/src/shared/wait.ts
-/**
+/** Resolves after `ms` milliseconds. */
+	function sleep(ms) {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+	/**
 	* Resolves with the first value `check` returns that is not undefined, checking once per tick.
 	* Rejects after `timeoutMs` (default 10 s); pass `false` to wait forever.
 	* Return `cond || undefined` from `check` to wait for a truthy condition.
@@ -55,7 +59,7 @@ try{
 	}
 
 // ../../../packages/lib/src/client/netEvent.ts
-	const log$2 = createLogger(GetCurrentResourceName());
+	const log$4 = createLogger(GetCurrentResourceName());
 	/**
 	* Whether the net event being handled came from the server (read it before the first `await`). On a client only
 	* events from the server carry a source (65535 in the docs); a local emit by any resource carries none.
@@ -66,14 +70,14 @@ try{
 		onNet(name, (...raw) => {
 			if (!fromServer() || !handler) return;
 			const args = parse ? parse(raw) : [];
-			if (!args) return log$2.warn(`event ${name} from the server had invalid arguments`);
-			Promise.resolve().then(() => handler(...args)).catch((error) => log$2.error(`event ${name} failed`, error));
+			if (!args) return log$4.warn(`event ${name} from the server had invalid arguments`);
+			Promise.resolve().then(() => handler(...args)).catch((error) => log$4.error(`event ${name} failed`, error));
 		});
 	}
 
 // ../../../packages/lib/src/client/callback.ts
 	const resource$1 = GetCurrentResourceName();
-	const log$1 = createLogger(resource$1);
+	const log$3 = createLogger(resource$1);
 	const pending = /* @__PURE__ */ new Map();
 	let nextId = 0;
 	onNet(responseEvent(resource$1), (id, ok, result) => {
@@ -143,6 +147,10 @@ try{
 		clientPromptPressedEvent: "ai-core:client:promptPressed",
 		/** (key: keyof PlayerCache, value) a cached value of the local player changed (one watcher in ai-core for every resource). */
 		clientCacheEvent: "ai-core:client:cache",
+		/** Server -> client callback: (model: string) the `CreateVehicleServerSetter` type of a model, null when the game has no such vehicle (ai-core's client answers for every resource, lib `spawnVehicle`). */
+		vehicleTypeCallback: "ai-core:vehicleType",
+		/** GlobalState: "prompt" | "target", how lib `Points` let players interact (ai-core panel setting). */
+		interactionStateKey: "ai:interaction",
 		charactersCallback: "ai-core:characters",
 		createCharacterCallback: "ai-core:createCharacter",
 		deleteCharacterCallback: "ai-core:deleteCharacter",
@@ -177,6 +185,11 @@ try{
 // ../../../packages/lib/src/client/cache.ts
 /** The unarmed "weapon" hash: cached as `false`. */
 	const UNARMED = GetHashKey("WEAPON_UNARMED") | 0;
+	/** The weapon in a ped's hand, `false` when unarmed. */
+	function readWeapon(ped) {
+		const weapon = GetSelectedPedWeapon(ped) | 0;
+		return weapon === UNARMED ? false : weapon;
+	}
 	/** The vehicle, seat and weapon of a ped right now (also ai-core's watcher). */
 	function readPlayerState(ped) {
 		const vehicle = GetVehiclePedIsIn(ped, false);
@@ -186,11 +199,10 @@ try{
 			seat = i;
 			break;
 		}
-		const weapon = GetSelectedPedWeapon(ped) | 0;
 		return {
 			vehicle: vehicle || false,
 			seat,
-			weapon: weapon === UNARMED ? false : weapon
+			weapon: readWeapon(ped)
 		};
 	}
 	/**
@@ -228,7 +240,177 @@ try{
 	* (measured with 1,000,000 zones): zones sit in a grid of 64 m cells and a check looks only at the player's cell and
 	* the zones the player is in.
 	*/
-	const log = createLogger(GetCurrentResourceName());
+	const log$2 = createLogger(GetCurrentResourceName());
+	const CELL = 64;
+	/** A zone wider than this many cells is kept in one list checked every time instead of in the grid. */
+	const MAX_CELLS = 64;
+	const cellKey = (cx, cy) => cx + 32768 << 16 | cy + 32768;
+	function contains(shape, x, y, z) {
+		switch (shape.type) {
+			case "sphere": {
+				const dx = x - shape.center.x;
+				const dy = y - shape.center.y;
+				const dz = z - shape.center.z;
+				return dx * dx + dy * dy + dz * dz <= shape.radius * shape.radius;
+			}
+			case "cylinder": {
+				const dx = x - shape.center.x;
+				const dy = y - shape.center.y;
+				return dx * dx + dy * dy <= shape.radius * shape.radius && Math.abs(z - shape.center.z) <= shape.height;
+			}
+			case "poly": {
+				if (z < shape.minZ || z > shape.maxZ) return false;
+				let inside = false;
+				const p = shape.points;
+				for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+					const a = p[i];
+					const b = p[j];
+					if (a.y > y !== b.y > y && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+				}
+				return inside;
+			}
+			default: return shape;
+		}
+	}
+	/** Ground bounding box of a shape: [minX, minY, maxX, maxY]. */
+	function bounds(shape) {
+		if (shape.type !== "poly") return [
+			shape.center.x - shape.radius,
+			shape.center.y - shape.radius,
+			shape.center.x + shape.radius,
+			shape.center.y + shape.radius
+		];
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const p of shape.points) {
+			minX = Math.min(minX, p.x);
+			minY = Math.min(minY, p.y);
+			maxX = Math.max(maxX, p.x);
+			maxY = Math.max(maxY, p.y);
+		}
+		return [
+			minX,
+			minY,
+			maxX,
+			maxY
+		];
+	}
+	var Zone = class {
+		options;
+		inside = false;
+		nextCheck = 0;
+		interval;
+		/** Grid cells the zone is filed under; empty when it is in the large list. */
+		cells = [];
+		constructor(options) {
+			this.options = options;
+			this.interval = Math.max(50, options.interval ?? 500);
+		}
+	};
+	/**
+	* The zones of one resource. One timer serves them all at the shortest interval any zone asks for; each zone is
+	* checked only when its own interval has passed. With no zones the timer stops (an active JS timer costs every frame).
+	*/
+	var Zones = class {
+		zones = /* @__PURE__ */ new Map();
+		grid = /* @__PURE__ */ new Map();
+		large = /* @__PURE__ */ new Set();
+		insideNow = /* @__PURE__ */ new Set();
+		/** How many zones use each interval, so the shortest one is found without walking every zone. */
+		intervals = /* @__PURE__ */ new Map();
+		timer = null;
+		period = 0;
+		/** Adds (or replaces) a zone. A replaced zone the player was in fires its onExit first. */
+		add(id, options) {
+			this.remove(id);
+			const zone = new Zone(options);
+			this.zones.set(id, zone);
+			const [minX, minY, maxX, maxY] = bounds(options.shape);
+			const x0 = Math.floor(minX / CELL);
+			const y0 = Math.floor(minY / CELL);
+			const x1 = Math.floor(maxX / CELL);
+			const y1 = Math.floor(maxY / CELL);
+			if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_CELLS) this.large.add(zone);
+			else for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) {
+				const key = cellKey(cx, cy);
+				let cell = this.grid.get(key);
+				if (!cell) this.grid.set(key, cell = /* @__PURE__ */ new Set());
+				cell.add(zone);
+				zone.cells.push(key);
+			}
+			this.intervals.set(zone.interval, (this.intervals.get(zone.interval) ?? 0) + 1);
+			this.schedule();
+		}
+		remove(id) {
+			const zone = this.zones.get(id);
+			if (!zone) return;
+			this.zones.delete(id);
+			this.large.delete(zone);
+			for (const key of zone.cells) {
+				const cell = this.grid.get(key);
+				cell?.delete(zone);
+				if (cell?.size === 0) this.grid.delete(key);
+			}
+			const left = (this.intervals.get(zone.interval) ?? 1) - 1;
+			if (left > 0) this.intervals.set(zone.interval, left);
+			else this.intervals.delete(zone.interval);
+			if (this.insideNow.delete(zone)) this.fire(zone, false);
+			this.schedule();
+		}
+		/** Removes every zone (exits fire for the ones the player is in). */
+		clear() {
+			const inside = [...this.insideNow];
+			this.zones.clear();
+			this.grid.clear();
+			this.large.clear();
+			this.insideNow.clear();
+			this.intervals.clear();
+			for (const zone of inside) this.fire(zone, false);
+			this.schedule();
+		}
+		isInside(id) {
+			return this.zones.get(id)?.inside ?? false;
+		}
+		get size() {
+			return this.zones.size;
+		}
+		schedule() {
+			let period = 0;
+			for (const interval of this.intervals.keys()) period = period === 0 ? interval : Math.min(period, interval);
+			if (period === this.period) return;
+			if (this.timer) clearInterval(this.timer);
+			this.timer = period ? setInterval(() => this.check(), period) : null;
+			this.period = period;
+		}
+		check() {
+			const now = GetGameTimer();
+			const [x = 0, y = 0, z = 0] = GetEntityCoords(cache.ped, false);
+			for (const zone of this.insideNow) this.test(zone, now, x, y, z);
+			for (const zone of this.large) this.test(zone, now, x, y, z);
+			const cell = this.grid.get(cellKey(Math.floor(x / CELL), Math.floor(y / CELL)));
+			if (cell) for (const zone of cell) this.test(zone, now, x, y, z);
+		}
+		test(zone, now, x, y, z) {
+			if (now < zone.nextCheck) return;
+			zone.nextCheck = now + zone.interval;
+			const inside = contains(zone.options.shape, x, y, z);
+			if (inside === zone.inside) return;
+			if (inside) this.insideNow.add(zone);
+			else this.insideNow.delete(zone);
+			this.fire(zone, inside);
+		}
+		fire(zone, inside) {
+			zone.inside = inside;
+			try {
+				if (inside) zone.options.onEnter?.();
+				else zone.options.onExit?.();
+			} catch (error) {
+				log$2.error("zone handler failed", error);
+			}
+		}
+	};
 
 // ../../../packages/lib/src/fivem/exports.ts
 /** Typed access to another resource's exports (types come from CitizenExports in @aicore-fivem/shared). */
@@ -240,6 +422,20 @@ try{
 		return GetResourceState(resource) === "started";
 	}
 
+// ../../../packages/lib/src/client/prompt.ts
+	const core$3 = resourceExport(CORE.resource);
+	/** The player pressed the interaction key while this resource's prompt `id` was the one on top. */
+	function onPromptPressed(handler) {
+		const resource = GetCurrentResourceName();
+		on(CORE.clientPromptPressedEvent, (owner, id) => {
+			if (owner === resource && typeof id === "string") handler(id);
+		});
+	}
+
+// ../../../packages/lib/src/client/blip.ts
+	const LABEL = `AI_BLIP_${GetCurrentResourceName()}`;
+	AddTextEntry(LABEL, "~a~");
+
 // ../../../packages/lib/src/client/streaming.ts
 /** Loads an animation dictionary. Call `RemoveAnimDict(dict)` when it is no longer played. */
 	async function requestAnimDict(dict, timeoutMs = 1e4) {
@@ -249,10 +445,93 @@ try{
 		return dict;
 	}
 
+// ../../../packages/lib/src/client/localPed.ts
+	const log$1 = createLogger(GetCurrentResourceName());
+	/** One zone set for every local ped of this resource: peds exist only while their player is near. */
+	const zones = new Zones();
+	on("onResourceStop", (resource) => {
+		if (resource === GetCurrentResourceName()) zones.clear();
+	});
+
+// ../../../packages/lib/src/client/point.ts
+	const log = createLogger(GetCurrentResourceName());
+	const TARGET = "ox_target";
+	const groups = /* @__PURE__ */ new Set();
+	const byPrompt = /* @__PURE__ */ new Map();
+	onPromptPressed((id) => byPrompt.get(id)?.press());
+	const restyleAll = () => {
+		for (const group of groups) group.restyle();
+	};
+	AddStateBagChangeHandler(CORE.interactionStateKey, "global", () => setTimeout(restyleAll, 0));
+	for (const event of ["onClientResourceStart", "onClientResourceStop"]) on(event, (resource) => {
+		if (resource === TARGET || resource === "ai-target") setTimeout(restyleAll, 0);
+	});
+
+// ../../../packages/lib/src/client/player.ts
+/** Fades the screen out and resolves once it is black. */
+	async function fadeOut(ms = 300) {
+		DoScreenFadeOut(ms);
+		await waitFor(() => IsScreenFadedOut() || void 0, ms + 2e3).catch(() => void 0);
+	}
+	/**
+	* The local player's ped, like ox_core's player object: position, moves and animations in one place. Reads use
+	* `cache.ped` (loops); one-off actions read the ped fresh, so they also work right after a model change.
+	*/
+	const player = {
+		get ped() {
+			return cache.ped;
+		},
+		coords() {
+			const [x = 0, y = 0, z = 0] = GetEntityCoords(cache.ped, false);
+			return {
+				x,
+				y,
+				z
+			};
+		},
+		heading() {
+			return GetEntityHeading(cache.ped);
+		},
+		/** Distance from the ped to a point, in metres. */
+		distanceTo(point) {
+			const [x = 0, y = 0, z = 0] = GetEntityCoords(cache.ped, false);
+			return Math.hypot(x - point.x, y - point.y, z - point.z);
+		},
+		freeze(state) {
+			FreezeEntityPosition(PlayerPedId(), state);
+		},
+		/** Moves the player and waits for the collision there, behind a fade unless `fade: false`. */
+		async teleport(to, options = {}) {
+			const fade = options.fade !== false;
+			if (fade) await fadeOut();
+			const ped = PlayerPedId();
+			RequestCollisionAtCoord(to.x, to.y, to.z);
+			if (options.keepVehicle) SetPedCoordsKeepVehicle(ped, to.x, to.y, to.z);
+			else if (options.ground === false) SetEntityCoordsNoOffset(ped, to.x, to.y, to.z, false, false, false);
+			else SetEntityCoords(ped, to.x, to.y, to.z, false, false, false, false);
+			if (options.heading !== void 0) SetEntityHeading(ped, options.heading);
+			await waitFor(() => HasCollisionLoadedAroundEntity(ped) || void 0, 5e3).catch(() => void 0);
+			if (fade) {
+				await sleep(100);
+				DoScreenFadeIn(400);
+			}
+		},
+		/** Plays an animation on the ped (loads and frees the dictionary); resolves when it started. */
+		async playAnim(dict, clip, options = {}) {
+			await requestAnimDict(dict);
+			TaskPlayAnim(PlayerPedId(), dict, clip, options.blendIn ?? 8, options.blendOut ?? -8, options.duration ?? -1, options.flag ?? 49, 0, false, false, false);
+			RemoveAnimDict(dict);
+		},
+		stopAnim() {
+			ClearPedTasks(PlayerPedId());
+		}
+	};
+
 // ../../../packages/lib/src/client/notify.ts
-/** Shows a notification card on this player's screen (ai-core draws it); `text` is already translated. */
+	const core$2 = resourceExport(CORE.resource);
+	/** Shows a notification card on this player's screen (ai-core draws it); `text` is already translated. */
 	function notify(text, kind = "info", duration) {
-		resourceExport(CORE.resource).Notify({
+		core$2.Notify({
 			text,
 			kind,
 			duration
@@ -263,13 +542,12 @@ try{
 	* when cancelled (death, getting into a vehicle). Checks ten times a second, nothing per frame.
 	*/
 	async function progress(options) {
-		const core = resourceExport(CORE.resource);
 		const ped = cache.ped;
 		if (options.anim) {
 			await requestAnimDict(options.anim.dict);
 			TaskPlayAnim(ped, options.anim.dict, options.anim.clip, 3, 3, options.duration, options.anim.flag ?? 49, 0, false, false, false);
 		}
-		core.ShowProgress(options.label, options.duration);
+		core$2.ShowProgress(options.label, options.duration);
 		const end = GetGameTimer() + options.duration;
 		const done = await new Promise((resolve) => {
 			const timer = setInterval(() => {
@@ -280,12 +558,13 @@ try{
 			}, 100);
 		});
 		if (options.anim) StopAnimTask(ped, options.anim.dict, options.anim.clip, 1);
-		core.HideProgress();
+		core$2.HideProgress();
 		return done;
 	}
 
 // ../../../packages/lib/src/client/menu.ts
-/** Menus and input dialogs this resource asked ai-core for, waiting for the player's answer. */
+	const core$1 = resourceExport(CORE.resource);
+	/** Menus and input dialogs this resource asked ai-core for, waiting for the player's answer. */
 	var Requests = class {
 		resource = GetCurrentResourceName();
 		waiting = /* @__PURE__ */ new Map();
@@ -312,6 +591,9 @@ try{
 		}
 	};
 	const requests = new Requests();
+
+// ../../../packages/lib/src/client/inventory.ts
+	const core = resourceExport(CORE.resource);
 
 // ../../../packages/lib/src/client/vehicleProps.ts
 	const MOD_TYPES = Array.from({ length: 50 }, (_, i) => i);
@@ -463,7 +745,7 @@ try{
 	/** The closest networked vehicle within `metres` (the one the player sits in first). */
 	function nearestVehicle(metres) {
 		if (cache.vehicle !== false) return cache.vehicle;
-		const [x = 0, y = 0, z = 0] = GetEntityCoords(cache.ped, false);
+		const { x, y, z } = player.coords();
 		let best = null;
 		let bestDistance = metres;
 		for (const vehicle of GetGamePool("CVehicle")) {
