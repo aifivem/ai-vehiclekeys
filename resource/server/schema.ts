@@ -1,7 +1,7 @@
-import type { PanelSchema } from "@aicore-fivem/shared"
+import type { PanelSchema } from "@aicore-fivem/shared";
 
-const pct = { type: "number", min: 0, max: 100, integer: true } as const
-const secs = { type: "number", min: 1, max: 120, integer: true } as const
+const pct = { type: "number", min: 0, max: 100, integer: true } as const;
+const secs = { type: "number", min: 1, max: 120, integer: true } as const;
 
 /** ai-vehiclekeys' panel: lock reach and lockpicking odds. */
 export const keysSchema: PanelSchema = {
@@ -98,4 +98,4 @@ export const keysSchema: PanelSchema = {
       ],
     },
   ],
-}
+};
