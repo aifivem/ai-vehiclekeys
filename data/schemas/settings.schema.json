@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ai-vehiclekeys/data/settings.json",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "This file's JSON Schema (for editors)."
+    },
+    "lockDistance": {
+      "description": "Lock reach: How close the player must be to the vehicle.",
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 30
+    },
+    "unlockChance": {
+      "description": "Door chance: Chance a lockpick opens a locked door.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "unlockSeconds": {
+      "description": "Door time",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "hotwireChance": {
+      "description": "Hotwire chance: Chance the engine starts; the player then has the keys until leaving the server.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "hotwireSeconds": {
+      "description": "Hotwire time",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "breakChance": {
+      "description": "Break chance: Chance the lockpick breaks when a try fails.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "lockDistance",
+    "unlockChance",
+    "unlockSeconds",
+    "hotwireChance",
+    "hotwireSeconds",
+    "breakChance"
+  ]
+}

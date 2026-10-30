@@ -1,4 +1,5 @@
 {
+  "$schema": "./schemas/settings.schema.json",
   "lockDistance": 6,
   "unlockChance": 60,
   "unlockSeconds": 5,
