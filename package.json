@@ -7,7 +7,7 @@
   "author": {
     "name": "TGIANN"
   },
-  "repository": "github:TGIANN/ai-vehiclekeys",
+  "repository": "github:aifivem/ai-vehiclekeys",
   "type": "module",
   "fxDependencies": [
     "/onesync",
