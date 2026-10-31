@@ -1,16 +1,10 @@
-import {
-  onCharacter,
-  online,
-  PlayerMap,
-  resourceExport,
-} from "@aicore-fivem/lib/server";
+import { onCharacter, online, PlayerMap } from "@aicore-fivem/lib/server";
 import { EVENTS, normalizePlate } from "common/keys";
-
-const vehiclesApi = resourceExport("ai-vehicles");
+import { owners } from "./owners";
 
 /**
- * Who may drive and lock what. Owned vehicles: their character owner, or members of their job / gang (owner from
- * ai-vehicles, always current; the player's character, jobs and gangs from lib `online`). Other keys (given by
+ * Who may drive and lock what. Owned vehicles: their character owner, or members of their job / gang (owner from the
+ * ai-vehicles mirror in `owners.ts`; the player's character, jobs and gangs from lib `online`). Other keys (given by
  * scripts, hotwired) live for the character's session. Clients ask when they take a driver seat; nothing is pushed.
  */
 class Keys {
@@ -28,13 +22,13 @@ class Keys {
   has(source: number, plate: string): boolean {
     const p = normalizePlate(plate);
     if (this.extra.get(source)?.has(p)) return true;
-    const vehicle = vehiclesApi.GetVehicle(p);
-    if (!vehicle) return false;
-    const { type, id } = vehicle.owner;
+    const owner = owners.get(p);
+    if (!owner) return false;
+    const { type, id } = owner;
     if (type === "character")
       return String(online.character(source)?.id ?? "") === id;
     if (type === "job") return online.jobs(source).includes(id);
-    return online.gangs(source).includes(id);
+    return type === "gang" && online.gangs(source).includes(id);
   }
 
   give(source: number, plate: string): void {

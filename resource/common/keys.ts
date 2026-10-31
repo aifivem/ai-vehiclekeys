@@ -51,5 +51,4 @@ export function readSettings(raw: unknown): Settings {
   };
 }
 
-export const normalizePlate = (plate: string): string =>
-  plate.trim().toUpperCase();
+export { normalizePlate } from "@aicore-fivem/lib/shared";
