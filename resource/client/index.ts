@@ -6,11 +6,12 @@ import {
   Keybind,
   nearestVehicle,
   notify,
+  lockpick,
   onCache,
+  onServerCallback,
   onServerEvent,
-  progress,
+  skillCheck,
 } from "@aicore-fivem/lib/client";
-import { readFinite, readId } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 import { seatKey } from "./give";
@@ -89,35 +90,13 @@ onServerEvent(EVENTS.granted, () => {
     SetVehicleEngineOn(cache.vehicle, true, false, true);
 });
 
-onServerEvent(
-  EVENTS.startPick,
-  {
-    args: ([kind, token, seconds]) => {
-      const id = readId(token);
-      const time = readFinite(seconds);
-      return (kind === "unlock" || kind === "hotwire") &&
-        id !== null &&
-        time !== null
-        ? [kind, id, time]
-        : null;
-    },
-  },
-  async (kind, token, seconds) => {
-    const done = await progress({
-      label: Locale(kind === "hotwire" ? "KEYS_HOTWIRING" : "KEYS_PICKING"),
-      duration: seconds * 1000,
-      anim:
-        kind === "hotwire"
-          ? { dict: "veh@std@ds@base", clip: "hotwire" }
-          : { dict: "veh@break_in@0h@p_m_one@", clip: "low_force_entry_ds" },
-      allowVehicle: kind === "hotwire",
-    });
-    if (done)
-      void callAction(EVENTS.finishPick, [token], {
-        fallback: "KEYS_ERR_FAR",
-      });
-  },
-);
+onServerCallback(EVENTS.minigame, async (game, difficulty) => {
+  const level =
+    difficulty === "easy" || difficulty === "hard" ? difficulty : "medium";
+  if (game === "lockpick") return lockpick({ difficulty: level });
+  if (game !== "skillCheck") return "cancelled";
+  return (await skillCheck([level, level])) ? "opened" : "cancelled";
+});
 
 new Keybind({
   name: "vehiclekeys_engine",

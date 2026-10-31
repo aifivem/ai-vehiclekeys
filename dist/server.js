@@ -228,6 +228,8 @@ const CORE = {
 	clientCancelProgressEvent: "ai-core:client:cancelProgress",
 	clientDefinitionsEvent: "ai-core:client:definitions",
 	vehicleTypeCallback: "ai-core:vehicleType",
+	progressForCallback: "ai-core:progressFor",
+	progressForCancelEvent: "ai-core:client:progressForCancel",
 	interactionStateKey: "ai:interaction",
 	charactersCallback: "ai-core:characters",
 	createCharacterCallback: "ai-core:createCharacter",
@@ -366,10 +368,25 @@ function onClientCallback(name, first, second) {
 	});
 }
 const pending = new Map();
+let nextId = 0;
 onNet(responseEvent(resource$1), (id, ok, result) => {
 	let entry = typeof id == "number" ? pending.get(id) : void 0;
 	entry && entry.source === Number(globalThis.source) && (pending.delete(id), clearTimeout(entry.timer), ok === !0 ? entry.resolve(result) : entry.reject(Error("client callback failed")));
 });
+function triggerClientCallback(name, source, args = [], timeoutMs = 3e4) {
+	let id = ++nextId;
+	return new Promise((resolve, reject) => {
+		let timer = setTimeout(() => {
+			pending.delete(id), reject(Error(`client callback ${name} timed out for ${source}`));
+		}, timeoutMs);
+		pending.set(id, {
+			source,
+			resolve,
+			reject,
+			timer
+		}), emitNet(requestEvent(name), source, resource$1, id, ...args);
+	});
+}
 // ../../../packages/lib/src/server/admin/patch.ts
 function toPatch(value) {
 	if (!isRecord(value) || typeof value.file != "string") return null;
@@ -1039,36 +1056,23 @@ function onCharacter(handlers) {
 		}
 	});
 }
-// ../../../packages/lib/src/server/pending.ts
-var PendingActions = class {
-	actions = new PlayerMap();
-	minRatio;
-	next = 0;
-	constructor(options = {}) {
-		this.minRatio = options.minRatio ?? .8, on(CORE.playerUnloadedEvent, (source) => this.actions.delete(source));
-	}
-	start(source, data, durationMs) {
-		return this.next = this.next >= 2147483647 ? 1 : this.next + 1, this.actions.set(source, {
-			token: this.next,
-			data,
-			startedAt: GetGameTimer(),
-			durationMs
-		}), this.next;
-	}
-	take(source, token) {
-		let action = this.actions.get(source);
-		return !action || action.token !== token ? null : (this.actions.delete(source), GetGameTimer() - action.startedAt >= action.durationMs * this.minRatio ? action.data : null);
-	}
-	peek(source) {
-		return this.actions.get(source)?.data ?? null;
-	}
-	cancel(source) {
-		this.actions.delete(source);
-	}
-	get size() {
-		return this.actions.size;
-	}
-};
+// ../../../packages/lib/src/server/progressFor.ts
+const running = new PlayerMap({ onDrop: (_source, settle) => settle(!1) });
+on(CORE.playerUnloadedEvent, (source) => {
+	let settle = running.get(source);
+	settle && settle(!1);
+});
+function progressFor(source, options) {
+	let previous = running.get(source);
+	previous && (previous(!1), emitNet(CORE.progressForCancelEvent, source));
+	let { minRatio = .8, ...bar } = options, startedAt = GetGameTimer();
+	return new Promise((resolve) => {
+		let done = !1, settle = (ok) => {
+			done || (done = !0, running.get(source) === settle && running.delete(source), resolve(ok));
+		};
+		running.set(source, settle), triggerClientCallback(CORE.progressForCallback, source, [bar], bar.duration + 15e3).then((answer) => settle(answer === !0 && GetGameTimer() - startedAt >= bar.duration * minRatio), () => settle(!1));
+	});
+}
 // ../../../packages/lib/src/server/command.ts
 const resource = GetCurrentResourceName();
 createLogger(resource), new class {
@@ -1191,11 +1195,18 @@ GetCurrentResourceName(), IsDuplicityVersion();
 const EVENTS = {
 	check: "ai-vehiclekeys:check",
 	granted: "ai-vehiclekeys:client:granted",
-	startPick: "ai-vehiclekeys:client:startPick",
+	minigame: "ai-vehiclekeys:minigame",
 	toggleLock: "ai-vehiclekeys:toggleLock",
-	finishPick: "ai-vehiclekeys:finishPick",
 	giveNearest: "ai-vehiclekeys:giveNearest"
-};
+}, MINIGAMES = [
+	"off",
+	"skillCheck",
+	"lockpick"
+], DIFFICULTIES = [
+	"easy",
+	"medium",
+	"hard"
+], oneOf = (list, v, fallback) => list.find((x) => x === v) ?? fallback;
 function readSettings(raw) {
 	let s = record(raw);
 	return {
@@ -1204,7 +1215,9 @@ function readSettings(raw) {
 		unlockSeconds: int(s.unlockSeconds, 5, 1, 60),
 		hotwireChance: int(s.hotwireChance, 35, 0, 100),
 		hotwireSeconds: int(s.hotwireSeconds, 10, 1, 120),
-		breakChance: int(s.breakChance, 25, 0, 100)
+		breakChance: int(s.breakChance, 25, 0, 100),
+		minigame: oneOf(MINIGAMES, s.minigame, "lockpick"),
+		minigameDifficulty: oneOf(DIFFICULTIES, s.minigameDifficulty, "medium")
 	};
 }
 const normalizePlate = (plate) => plate.trim().toUpperCase(), vehiclesApi = resourceExport("ai-vehicles"), keys = new class {
@@ -1280,7 +1293,23 @@ const pct = {
 			unlockSeconds: secs,
 			hotwireChance: pct,
 			hotwireSeconds: secs,
-			breakChance: pct
+			breakChance: pct,
+			minigame: {
+				type: "enum",
+				values: [
+					"off",
+					"skillCheck",
+					"lockpick"
+				]
+			},
+			minigameDifficulty: {
+				type: "enum",
+				values: [
+					"easy",
+					"medium",
+					"hard"
+				]
+			}
 		}
 	} },
 	tabs: [{
@@ -1349,6 +1378,49 @@ const pct = {
 					min: 0,
 					max: 100,
 					unit: "%"
+				},
+				{
+					widget: "select",
+					path: "minigame",
+					label: "ADMIN_F_MINIGAME",
+					hint: "ADMIN_H_MINIGAME",
+					options: [
+						{
+							value: "off",
+							label: "ADMIN_O_MINIGAME_OFF"
+						},
+						{
+							value: "skillCheck",
+							label: "ADMIN_O_MINIGAME_SKILL"
+						},
+						{
+							value: "lockpick",
+							label: "ADMIN_O_MINIGAME_LOCKPICK"
+						}
+					]
+				},
+				{
+					widget: "select",
+					path: "minigameDifficulty",
+					label: "ADMIN_F_MINIGAME_DIFFICULTY",
+					showIf: {
+						path: "minigame",
+						values: ["skillCheck", "lockpick"]
+					},
+					options: [
+						{
+							value: "easy",
+							label: "ADMIN_O_EASY"
+						},
+						{
+							value: "medium",
+							label: "ADMIN_O_MEDIUM"
+						},
+						{
+							value: "hard",
+							label: "ADMIN_O_HARD"
+						}
+					]
 				}
 			]
 		}]
@@ -1370,9 +1442,37 @@ onClientCallback(EVENTS.check, { args: oneArg(readId) }, (source, netId) => {
 		locked: !locked
 	};
 });
-const picks = new PendingActions();
+const picking = new SourceLock();
+async function playMinigame(source) {
+	let s = settings.value;
+	if (s.minigame === "off") return "opened";
+	let answer = await triggerClientCallback(EVENTS.minigame, source, [s.minigame, s.minigameDifficulty], 12e4).catch(() => "cancelled");
+	return answer === "opened" || answer === "broken" ? answer : "cancelled";
+}
+async function pick(source, kind, vehicle) {
+	let game = await playMinigame(source);
+	if (game === "broken") return inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error");
+	if (game !== "opened") return;
+	let s = settings.value, seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
+	if (await progressFor(source, {
+		label: Locale(kind === "hotwire" ? "KEYS_HOTWIRING" : "KEYS_PICKING"),
+		duration: seconds * 1e3,
+		anim: kind === "hotwire" ? {
+			dict: "veh@std@ds@base",
+			clip: "hotwire"
+		} : {
+			dict: "veh@break_in@0h@p_m_one@",
+			clip: "low_force_entry_ds"
+		},
+		allowVehicle: kind === "hotwire",
+		canCancel: !0
+	}) && DoesEntityExist(vehicle) && isNear(source, entityCoords(vehicle), 4)) {
+		if (Math.random() * 100 < (kind === "hotwire" ? s.hotwireChance : s.unlockChance)) return kind === "hotwire" ? keys.give(source, plateOf(vehicle)) : SetVehicleDoorsLocked(vehicle, 1), notify(source, Locale(kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"), "success");
+		Math.random() * 100 < s.breakChance ? (inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error")) : notify(source, Locale("KEYS_FAILED"), "warning");
+	}
+}
 function useLockpick(source) {
-	let ped = GetPlayerPed(String(source)), seat = GetVehiclePedIsIn(ped, !1), s = settings.value, kind, vehicle;
+	let ped = GetPlayerPed(String(source)), seat = GetVehiclePedIsIn(ped, !1), kind, vehicle;
 	if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
 		if (keys.has(source, plateOf(seat))) return !1;
 		kind = "hotwire", vehicle = seat;
@@ -1381,21 +1481,9 @@ function useLockpick(source) {
 		if (!near) return !1;
 		kind = "unlock", vehicle = near;
 	}
-	let seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds, token = picks.start(source, {
-		kind,
-		vehicle
-	}, seconds * 1e3);
-	return emitNet(EVENTS.startPick, source, kind, token, seconds), !1;
+	return picking.run(source, void 0, () => pick(source, kind, vehicle)), !1;
 }
-onClientCallback(EVENTS.finishPick, {
-	args: oneArg(readId),
-	lock: !0
-}, (source, token) => {
-	let pick = picks.take(source, token);
-	if (!pick || !DoesEntityExist(pick.vehicle) || !isNear(source, entityCoords(pick.vehicle), 4)) return fail("KEYS_ERR_FAR");
-	let s = settings.value;
-	return Math.random() * 100 < (pick.kind === "hotwire" ? s.hotwireChance : s.unlockChance) ? (pick.kind === "hotwire" ? keys.give(source, plateOf(pick.vehicle)) : SetVehicleDoorsLocked(pick.vehicle, 1), notify(source, Locale(pick.kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"), "success"), { ok: !0 }) : (Math.random() * 100 < s.breakChance ? (inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error")) : notify(source, Locale("KEYS_FAILED"), "warning"), { ok: !0 });
-}), inventory.registerUsableItem("lockpick", (source) => useLockpick(source));
+inventory.registerUsableItem("lockpick", (source) => useLockpick(source));
 const plateFrom = (vehicle) => typeof vehicle == "string" ? vehicle : typeof vehicle == "number" && DoesEntityExist(vehicle) ? plateOf(vehicle) : null, api = {
 	HasKeys: (source, vehicle) => {
 		let plate = plateFrom(vehicle);

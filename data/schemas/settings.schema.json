@@ -42,6 +42,22 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 100
+    },
+    "minigame": {
+      "description": "Minigame: Played before the progress bar. A lockpick that breaks in the lockpick game is used up. The chance above is still rolled after a won game: set it to 100 % to let the game decide alone.",
+      "enum": [
+        "off",
+        "skillCheck",
+        "lockpick"
+      ]
+    },
+    "minigameDifficulty": {
+      "description": "Difficulty",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ]
     }
   },
   "required": [
@@ -50,6 +66,8 @@
     "unlockSeconds",
     "hotwireChance",
     "hotwireSeconds",
-    "breakChance"
+    "breakChance",
+    "minigame",
+    "minigameDifficulty"
   ]
 }

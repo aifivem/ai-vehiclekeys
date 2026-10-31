@@ -33,5 +33,14 @@
   "ADMIN_H_BREAK_CHANCE": "Chance the lockpick breaks when a try fails.",
   "KEYBIND_ENGINE": "Engine on / off",
   "HINT_ENGINE": "Engine",
-  "HINT_LOCK": "Lock"
+  "HINT_LOCK": "Lock",
+  "ADMIN_F_MINIGAME": "Minigame",
+  "ADMIN_H_MINIGAME": "Played before the progress bar. A lockpick that breaks in the lockpick game is used up. The chance above is still rolled after a won game: set it to 100 % to let the game decide alone.",
+  "ADMIN_O_MINIGAME_OFF": "None",
+  "ADMIN_O_MINIGAME_SKILL": "Skill check",
+  "ADMIN_O_MINIGAME_LOCKPICK": "Lockpick",
+  "ADMIN_F_MINIGAME_DIFFICULTY": "Difficulty",
+  "ADMIN_O_EASY": "Easy",
+  "ADMIN_O_MEDIUM": "Medium",
+  "ADMIN_O_HARD": "Hard"
 }

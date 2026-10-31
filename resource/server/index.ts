@@ -6,9 +6,11 @@ import {
   nearestVehicleTo,
   notify,
   onClientCallback,
-  PendingActions,
+  progressFor,
   provideExport,
   registerExport,
+  SourceLock,
+  triggerClientCallback,
   vehicleNearPlayer,
 } from "@aicore-fivem/lib/server";
 import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
@@ -49,19 +51,80 @@ onClientCallback(
   },
 );
 
-/** Lockpick tries waiting for their progress bar: a finish before 80 % of the time is refused. */
-const picks = new PendingActions<{
-  kind: "unlock" | "hotwire";
-  vehicle: number;
-}>();
+/** One lockpick try per player at a time. */
+const picking = new SourceLock();
 /** How far a player may move from the vehicle while picking. */
 const PICK_REACH = 4;
+
+/** The lockpick's minigame on the player's client: "opened", "broken" or "cancelled" (also on no answer). */
+async function playMinigame(source: number): Promise<string> {
+  const s = settings.value;
+  if (s.minigame === "off") return "opened";
+  const answer = await triggerClientCallback(
+    EVENTS.minigame,
+    source,
+    [s.minigame, s.minigameDifficulty],
+    120_000,
+  ).catch(() => "cancelled");
+  return answer === "opened" || answer === "broken" ? answer : "cancelled";
+}
+
+/**
+ * A lockpick try: the minigame (a pick broken there is spent), then the server-timed progress bar, then the server's
+ * chance roll with the player still at the vehicle.
+ */
+async function pick(
+  source: number,
+  kind: "unlock" | "hotwire",
+  vehicle: number,
+): Promise<void> {
+  const game = await playMinigame(source);
+  if (game === "broken") {
+    inventory.removeItem(source, "lockpick", 1);
+    return notify(source, Locale("KEYS_BROKE"), "error");
+  }
+  if (game !== "opened") return;
+  const s = settings.value;
+  const seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
+  const done = await progressFor(source, {
+    label: Locale(kind === "hotwire" ? "KEYS_HOTWIRING" : "KEYS_PICKING"),
+    duration: seconds * 1000,
+    anim:
+      kind === "hotwire"
+        ? { dict: "veh@std@ds@base", clip: "hotwire" }
+        : { dict: "veh@break_in@0h@p_m_one@", clip: "low_force_entry_ds" },
+    allowVehicle: kind === "hotwire",
+    canCancel: true,
+  });
+  // Still at the vehicle when the progress ends (in its driver seat for a hotwire).
+  if (
+    !done ||
+    !DoesEntityExist(vehicle) ||
+    !isNear(source, entityCoords(vehicle), PICK_REACH)
+  )
+    return;
+  const success =
+    Math.random() * 100 <
+    (kind === "hotwire" ? s.hotwireChance : s.unlockChance);
+  if (success) {
+    if (kind === "hotwire") keys.give(source, plateOf(vehicle));
+    else SetVehicleDoorsLocked(vehicle, 1);
+    return notify(
+      source,
+      Locale(kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"),
+      "success",
+    );
+  }
+  if (Math.random() * 100 < s.breakChance) {
+    inventory.removeItem(source, "lockpick", 1);
+    notify(source, Locale("KEYS_BROKE"), "error");
+  } else notify(source, Locale("KEYS_FAILED"), "warning");
+}
 
 /** The lockpick item: from the driver seat it hotwires, next to a locked vehicle it opens the door. */
 function useLockpick(source: number): boolean {
   const ped = GetPlayerPed(String(source));
   const seat = GetVehiclePedIsIn(ped, false);
-  const s = settings.value;
   let kind: "unlock" | "hotwire";
   let vehicle: number;
   if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
@@ -79,49 +142,10 @@ function useLockpick(source: number): boolean {
     kind = "unlock";
     vehicle = near;
   }
-  const seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
-  const token = picks.start(source, { kind, vehicle }, seconds * 1000);
-  emitNet(EVENTS.startPick, source, kind, token, seconds);
-  // The lockpick is spent only when it breaks (finishPick).
+  void picking.run(source, undefined, () => pick(source, kind, vehicle));
+  // The lockpick is spent only when it breaks.
   return false;
 }
-
-onClientCallback(
-  EVENTS.finishPick,
-  {
-    args: oneArg(readId),
-    lock: true,
-  },
-  (source, token) => {
-    const pick = picks.take(source, token);
-    // Still at the vehicle when the progress ends (in its driver seat for a hotwire).
-    if (
-      !pick ||
-      !DoesEntityExist(pick.vehicle) ||
-      !isNear(source, entityCoords(pick.vehicle), PICK_REACH)
-    )
-      return fail("KEYS_ERR_FAR");
-    const s = settings.value;
-    const success =
-      Math.random() * 100 <
-      (pick.kind === "hotwire" ? s.hotwireChance : s.unlockChance);
-    if (success) {
-      if (pick.kind === "hotwire") keys.give(source, plateOf(pick.vehicle));
-      else SetVehicleDoorsLocked(pick.vehicle, 1);
-      notify(
-        source,
-        Locale(pick.kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"),
-        "success",
-      );
-      return { ok: true };
-    }
-    if (Math.random() * 100 < s.breakChance) {
-      inventory.removeItem(source, "lockpick", 1);
-      notify(source, Locale("KEYS_BROKE"), "error");
-    } else notify(source, Locale("KEYS_FAILED"), "warning");
-    return { ok: true };
-  },
-);
 
 inventory.registerUsableItem("lockpick", (source: number) =>
   useLockpick(source),
