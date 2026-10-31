@@ -8,7 +8,7 @@ Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and 
 - Clients do not mirror keys: on entering a vehicle (any seat) the client asks once (`ai-vehiclekeys:check`, `client/give.ts` `SeatKey`, answer shared with the engine block); in the driver seat without a key the engine is held off twice a second until a key arrives (`client:granted`) or the player leaves the seat.
 - Handing over keys: the radial vehicle category's "Hand over the keys" item (lib `radial`, `parent: RADIAL_VEHICLE`) shows while the player sits in a vehicle they hold the key of. The server (`server/give.ts`) checks the vehicle is within 6 m, the giver holds its key and picks the closest other player with a character within 3 m (lib `nearestPlayerTo`), gives that player a session key (the giver keeps theirs) and notifies both. It uses the key store itself, not lib `vehicleKeys`: this resource is the key system.
 - Locks are set by the server (`SetVehicleDoorsLocked`) after the key and distance check; the key fob flash and horn are local.
-- A lockpick try runs on the server (`pick` in `server/index.ts`, one per player through a `SourceLock`): the nearest locked vehicle within 3 m (lib `nearestVehicleTo` with a lock filter) or the driver seat, then the panel's minigame on the client (lib `skillCheck` / `lockpick` through the `minigame` client callback; a pick broken in the lockpick game is spent), then lib `progressFor` (server-timed bar), then the panel chance with the player still within 4 m. The minigame answer is the client's word, so the chance roll always follows it.
+- A lockpick try runs on the server (`pick` in `server/index.ts`, one per player through a `SourceLock`): the nearest locked vehicle within 3 m (lib `nearestVehicleTo` with a lock filter) or the driver seat, then the panel's minigame (lib `minigameFor`; a pick broken in the lockpick game is spent), then lib `progressFor` (server-timed bar), then the panel chance with the player still within 4 m. The minigame answer is the client's word, so the chance roll always follows it.
 - While a driver has no key, the ped's config flag 429 (cannot start engines) is on: ai-radialmenu's engine item reads it and refuses to start the engine.
 - Plates compare normalized (`normalizePlate`: trimmed, upper case) everywhere (`server/vehicles.ts` `plateOf`).
 
@@ -20,4 +20,4 @@ Vehicle keys, locking (L), lockpicking (doors) and hotwiring (driver seat), and 
 ## Entry points
 
 - Keys: `resource/server/keys.ts`; lock, check, lockpick and exports `server/index.ts`; handing over `server/give.ts`.
-- Client: lock key, engine block, lockpick minigame `resource/client/index.ts`; key answer per vehicle and the radial item `client/give.ts`.
+- Client: lock key, engine block `resource/client/index.ts`; key answer per vehicle and the radial item `client/give.ts`.

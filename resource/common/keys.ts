@@ -7,8 +7,6 @@ export const EVENTS = {
   check: "ai-vehiclekeys:check",
   /** Server -> owner: (netId) a key to this vehicle was given while sitting in it: the engine may start. */
   granted: "ai-vehiclekeys:client:granted",
-  /** Server -> client callback: (game: "skillCheck" | "lockpick", difficulty) -> "opened" | "broken" | "cancelled", the lockpick's minigame. */
-  minigame: "ai-vehiclekeys:minigame",
   /** Callback: (netId) -> { ok, locked? } toggle the lock of a vehicle the player has a key to. */
   toggleLock: "ai-vehiclekeys:toggleLock",
   /** Callback: (netId) -> { ok } give a copy of this vehicle's key to the nearest player (both get a notification). */

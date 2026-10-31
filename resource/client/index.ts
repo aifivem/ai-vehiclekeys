@@ -6,11 +6,8 @@ import {
   Keybind,
   nearestVehicle,
   notify,
-  lockpick,
   onCache,
-  onServerCallback,
   onServerEvent,
-  skillCheck,
 } from "@aicore-fivem/lib/client";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
@@ -88,14 +85,6 @@ onServerEvent(EVENTS.granted, () => {
   engine.release();
   if (cache.vehicle !== false)
     SetVehicleEngineOn(cache.vehicle, true, false, true);
-});
-
-onServerCallback(EVENTS.minigame, async (game, difficulty) => {
-  const level =
-    difficulty === "easy" || difficulty === "hard" ? difficulty : "medium";
-  if (game === "lockpick") return lockpick({ difficulty: level });
-  if (game !== "skillCheck") return "cancelled";
-  return (await skillCheck([level, level])) ? "opened" : "cancelled";
 });
 
 new Keybind({

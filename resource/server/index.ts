@@ -3,6 +3,7 @@ import {
   inventory,
   isNear,
   entityCoords,
+  minigameFor,
   nearestVehicleTo,
   notify,
   onClientCallback,
@@ -10,7 +11,6 @@ import {
   provideExport,
   registerExport,
   SourceLock,
-  triggerClientCallback,
   vehicleNearPlayer,
 } from "@aicore-fivem/lib/server";
 import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
@@ -56,19 +56,6 @@ const picking = new SourceLock();
 /** How far a player may move from the vehicle while picking. */
 const PICK_REACH = 4;
 
-/** The lockpick's minigame on the player's client: "opened", "broken" or "cancelled" (also on no answer). */
-async function playMinigame(source: number): Promise<string> {
-  const s = settings.value;
-  if (s.minigame === "off") return "opened";
-  const answer = await triggerClientCallback(
-    EVENTS.minigame,
-    source,
-    [s.minigame, s.minigameDifficulty],
-    120_000,
-  ).catch(() => "cancelled");
-  return answer === "opened" || answer === "broken" ? answer : "cancelled";
-}
-
 /**
  * A lockpick try: the minigame (a pick broken there is spent), then the server-timed progress bar, then the server's
  * chance roll with the player still at the vehicle.
@@ -78,13 +65,19 @@ async function pick(
   kind: "unlock" | "hotwire",
   vehicle: number,
 ): Promise<void> {
-  const game = await playMinigame(source);
+  const s = settings.value;
+  const game =
+    s.minigame === "off"
+      ? "won"
+      : await minigameFor(source, {
+          game: s.minigame,
+          difficulty: s.minigameDifficulty,
+        });
   if (game === "broken") {
     inventory.removeItem(source, "lockpick", 1);
     return notify(source, Locale("KEYS_BROKE"), "error");
   }
-  if (game !== "opened") return;
-  const s = settings.value;
+  if (game !== "won") return;
   const seconds = kind === "hotwire" ? s.hotwireSeconds : s.unlockSeconds;
   const done = await progressFor(source, {
     label: Locale(kind === "hotwire" ? "KEYS_HOTWIRING" : "KEYS_PICKING"),
