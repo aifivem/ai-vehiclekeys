@@ -1,5 +1,11 @@
-import { onCharacter, online, PlayerMap } from "@aicore-fivem/lib/server";
-import { EVENTS, normalizePlate } from "common/keys";
+import {
+  onCharacter,
+  online,
+  plateOf,
+  PlayerMap,
+} from "@aicore-fivem/lib/server";
+import { normalizePlate } from "@aicore-fivem/lib/shared";
+import { EVENTS } from "common/keys";
 import { owners } from "./owners";
 
 /**
@@ -27,8 +33,13 @@ class Keys {
     const { type, id } = owner;
     if (type === "character")
       return String(online.character(source)?.id ?? "") === id;
-    if (type === "job") return online.jobs(source).includes(id);
-    return type === "gang" && online.gangs(source).includes(id);
+    // A fleet vehicle: any member of its job / gang (any grade, on duty or not).
+    return online.allows(source, {
+      jobs: type === "job" ? [id] : [],
+      gangs: type === "gang" ? [id] : [],
+      grades: {},
+      onDuty: false,
+    });
   }
 
   give(source: number, plate: string): void {
@@ -38,7 +49,7 @@ class Keys {
     set.add(p);
     // Sitting in that vehicle right now (hotwired, or a script handed the key): the engine may start.
     const vehicle = GetVehiclePedIsIn(GetPlayerPed(String(source)), false);
-    if (vehicle && normalizePlate(GetVehicleNumberPlateText(vehicle)) === p)
+    if (vehicle && plateOf(vehicle) === p)
       emitNet(EVENTS.granted, source, NetworkGetNetworkIdFromEntity(vehicle));
   }
 

@@ -3,13 +3,13 @@ import {
   notify,
   onClientCallback,
   online,
+  plateOf,
   vehicleNearPlayer,
 } from "@aicore-fivem/lib/server";
 import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 import { keys } from "./keys";
-import { plateOf } from "./vehicles";
 
 /** How close the other player must stand to take the keys. */
 const GIVE_METRES = 3;

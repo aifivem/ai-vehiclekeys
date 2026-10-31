@@ -50,5 +50,3 @@ export function readSettings(raw: unknown): Settings {
     minigameDifficulty: oneOf(DIFFICULTIES, s.minigameDifficulty, "medium"),
   };
 }
-
-export { normalizePlate } from "@aicore-fivem/lib/shared";

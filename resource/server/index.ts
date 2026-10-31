@@ -7,6 +7,7 @@ import {
   nearestVehicleTo,
   notify,
   onClientCallback,
+  plateOf,
   progressFor,
   provideExport,
   registerExport,
@@ -19,7 +20,6 @@ import { EVENTS, readSettings } from "common/keys";
 import "./give";
 import { keys } from "./keys";
 import { keysSchema } from "./schema";
-import { plateOf } from "./vehicles";
 
 const panel = new AdminPanel(keysSchema);
 /** Panel settings, kept current by the panel. */

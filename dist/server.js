@@ -1198,6 +1198,8 @@ createLogger(resource), new class {
 		});
 	}
 }(), createLogger(GetCurrentResourceName()), createLogger("aicore-lib");
+// ../../../packages/lib/src/fivem/byResource.ts
+const plateOf = (vehicle) => GetVehicleNumberPlateText(vehicle).trim().toUpperCase();
 // ../../../packages/lib/src/fivem/scheduler.ts
 var Group = class {
 	interval;
@@ -1353,14 +1355,19 @@ const toOwner = (v) => {
 		let owner = owners.get(p);
 		if (!owner) return !1;
 		let { type, id } = owner;
-		return type === "character" ? String(online.character(source)?.id ?? "") === id : type === "job" ? online.jobs(source).includes(id) : type === "gang" && online.gangs(source).includes(id);
+		return type === "character" ? String(online.character(source)?.id ?? "") === id : online.allows(source, {
+			jobs: type === "job" ? [id] : [],
+			gangs: type === "gang" ? [id] : [],
+			grades: {},
+			onDuty: !1
+		});
 	}
 	give(source, plate) {
 		let set = this.extra.get(source), p = normalizePlate(plate);
 		if (!set || set.has(p)) return;
 		set.add(p);
 		let vehicle = GetVehiclePedIsIn(GetPlayerPed(String(source)), !1);
-		vehicle && normalizePlate(GetVehicleNumberPlateText(vehicle)) === p && emitNet(EVENTS.granted, source, NetworkGetNetworkIdFromEntity(vehicle));
+		vehicle && plateOf(vehicle) === p && emitNet(EVENTS.granted, source, NetworkGetNetworkIdFromEntity(vehicle));
 	}
 	remove(source, plate) {
 		let p = normalizePlate(plate);
@@ -1371,8 +1378,8 @@ onCharacter({
 	loaded: (source) => keys.load(source),
 	unloaded: (source) => keys.drop(source)
 });
-// resource/server/vehicles.ts
-const plateOf = (vehicle) => normalizePlate(GetVehicleNumberPlateText(vehicle)), refuse = (source, error) => (notify(source, Locale(error), "error", 2500), fail(error));
+// resource/server/give.ts
+const refuse = (source, error) => (notify(source, Locale(error), "error", 2500), fail(error));
 onClientCallback(EVENTS.giveNearest, {
 	args: oneArg(readId),
 	lock: !0
