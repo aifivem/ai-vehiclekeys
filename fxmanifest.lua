@@ -1,6 +1,6 @@
 name 'ai-vehiclekeys'
 author 'TGIANN'
-version '0.1.0' -- x-release-please-version
+version '0.1.1' -- x-release-please-version
 license 'GPL-3.0-only'
 description 'Vehicle keys, locks, lockpicking and hotwiring; qbx_vehiclekeys API'
 repository 'https://github.com/aifivem/ai-vehiclekeys'
