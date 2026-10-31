@@ -50,7 +50,7 @@ const readId = (value) => readInt(value, 1, 2147483647), oneArg = (read) => ([va
 }, fail = (error) => ({
 	ok: !1,
 	error
-}), normalizePlate = (plate) => plate.trim().toUpperCase(), isPublic = (rule) => rule.jobs.length === 0 && rule.gangs.length === 0, isObject = (value) => typeof value == "object" && !!value && !Array.isArray(value);
+}), rollChance = (percent) => Math.random() * 100 < percent, normalizePlate = (plate) => plate.trim().toUpperCase(), isPublic = (rule) => rule.jobs.length === 0 && rule.gangs.length === 0, isObject = (value) => typeof value == "object" && !!value && !Array.isArray(value);
 function readRecords(raw, readOne) {
 	let out = new Map();
 	if (!isObject(raw)) return out;
@@ -228,6 +228,8 @@ const CORE = {
 	vehicleTypeCallback: "ai-core:vehicleType",
 	interactionStateKey: "ai:interaction",
 	pvpStateKey: "ai:pvp",
+	medicalStateKey: "ai:medical",
+	clientDeadEvent: "ai-core:client:dead",
 	charactersCallback: "ai-core:characters",
 	createCharacterCallback: "ai-core:createCharacter",
 	deleteCharacterCallback: "ai-core:deleteCharacter",
@@ -323,6 +325,10 @@ function entityCoords(entity) {
 	};
 }
 const coordsOf = (source) => entityCoords(GetPlayerPed(String(source)));
+function vehicleOf(source, options = {}) {
+	let ped = GetPlayerPed(String(source)), vehicle = GetVehiclePedIsIn(ped, !1);
+	return !vehicle || !options.driver || GetPedInVehicleSeat(vehicle, -1) === ped ? vehicle : 0;
+}
 function isNear(source, point, metres) {
 	let [x = 0, y = 0, z = 0] = GetEntityCoords(GetPlayerPed(String(source))), dx = x - point.x, dy = y - point.y, dz = z - point.z;
 	return dx * dx + dy * dy + dz * dz <= metres * metres;
@@ -987,6 +993,9 @@ var OnlinePlayers = class {
 	character(source) {
 		return this.start(), this.players.get(source)?.character ?? null;
 	}
+	charId(source) {
+		return this.start(), this.players.get(source)?.character.id;
+	}
 	name(source, options = {}) {
 		let c = this.character(source);
 		return c ? `${c.firstname} ${c.lastname}` : options.fallback === !1 ? "" : GetPlayerName(String(source));
@@ -1104,19 +1113,19 @@ function onCharacter(handlers) {
 		} catch (error) {
 			log$3.error(`character loaded handler failed for ${source}`, error);
 		}
-	}, end = (source, charId) => {
+	}, end = (source, charId, reason) => {
 		if (live.delete(source)) try {
-			handlers.unloaded?.(source, charId);
+			handlers.unloaded?.(source, charId, reason);
 		} catch (error) {
 			log$3.error(`character unloaded handler failed for ${source}`, error);
 		}
 	};
 	on(CORE.playerLoadedEvent, (source, character) => {
 		let previous = live.get(source);
-		previous !== void 0 && end(source, previous), deliver(source, character);
-	}), on(CORE.playerUnloadedEvent, (source, charId) => end(source, charId)), onDropped((source) => setImmediate(() => {
+		previous !== void 0 && end(source, previous, "switch"), deliver(source, character);
+	}), on(CORE.playerUnloadedEvent, (source, charId, reason) => end(source, charId, reason === "dropped" ? "dropped" : "switch")), onDropped((source) => setImmediate(() => {
 		let charId = live.get(source);
-		charId !== void 0 && end(source, charId);
+		charId !== void 0 && end(source, charId, "dropped");
 	})), setImmediate(() => {
 		for (let source of online.sources()) {
 			if (live.has(source)) continue;
@@ -1359,7 +1368,7 @@ const toOwner = (v) => {
 		let owner = owners.get(p);
 		if (!owner) return !1;
 		let { type, id } = owner;
-		return type === "character" ? String(online.character(source)?.id ?? "") === id : online.allows(source, {
+		return type === "character" ? String(online.charId(source) ?? "") === id : online.allows(source, {
 			jobs: type === "job" ? [id] : [],
 			gangs: type === "gang" ? [id] : [],
 			grades: {},
@@ -1370,7 +1379,7 @@ const toOwner = (v) => {
 		let set = this.extra.get(source), p = normalizePlate(plate);
 		if (!set || set.has(p)) return;
 		set.add(p);
-		let vehicle = GetVehiclePedIsIn(GetPlayerPed(String(source)), !1);
+		let vehicle = vehicleOf(source);
 		vehicle && plateOf(vehicle) === p && emitNet(EVENTS.granted, source, NetworkGetNetworkIdFromEntity(vehicle));
 	}
 	remove(source, plate) {
@@ -1594,13 +1603,13 @@ async function pick(source, kind, vehicle) {
 		allowVehicle: kind === "hotwire",
 		canCancel: !0
 	}) && DoesEntityExist(vehicle) && isNear(source, entityCoords(vehicle), 4)) {
-		if (Math.random() * 100 < (kind === "hotwire" ? s.hotwireChance : s.unlockChance)) return kind === "hotwire" ? keys.give(source, plateOf(vehicle)) : SetVehicleDoorsLocked(vehicle, 1), notify(source, Locale(kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"), "success");
-		Math.random() * 100 < s.breakChance ? (inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error")) : notify(source, Locale("KEYS_FAILED"), "warning");
+		if (rollChance(kind === "hotwire" ? s.hotwireChance : s.unlockChance)) return kind === "hotwire" ? keys.give(source, plateOf(vehicle)) : SetVehicleDoorsLocked(vehicle, 1), notify(source, Locale(kind === "hotwire" ? "KEYS_HOTWIRED" : "KEYS_PICKED"), "success");
+		rollChance(s.breakChance) ? (inventory.removeItem(source, "lockpick", 1), notify(source, Locale("KEYS_BROKE"), "error")) : notify(source, Locale("KEYS_FAILED"), "warning");
 	}
 }
 function useLockpick(source) {
-	let ped = GetPlayerPed(String(source)), seat = GetVehiclePedIsIn(ped, !1), kind, vehicle;
-	if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
+	let seat = vehicleOf(source, { driver: !0 }), kind, vehicle;
+	if (seat) {
 		if (keys.has(source, plateOf(seat))) return !1;
 		kind = "hotwire", vehicle = seat;
 	} else {

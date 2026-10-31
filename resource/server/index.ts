@@ -1,8 +1,8 @@
 import {
   AdminPanel,
+  entityCoords,
   inventory,
   isNear,
-  entityCoords,
   minigameFor,
   nearestVehicleTo,
   notify,
@@ -13,8 +13,9 @@ import {
   registerExport,
   SourceLock,
   vehicleNearPlayer,
+  vehicleOf,
 } from "@aicore-fivem/lib/server";
-import { fail, oneArg, readId } from "@aicore-fivem/lib/shared";
+import { fail, oneArg, readId, rollChance } from "@aicore-fivem/lib/shared";
 import { Locale } from "common";
 import { EVENTS, readSettings } from "common/keys";
 import "./give";
@@ -96,9 +97,9 @@ async function pick(
     !isNear(source, entityCoords(vehicle), PICK_REACH)
   )
     return;
-  const success =
-    Math.random() * 100 <
-    (kind === "hotwire" ? s.hotwireChance : s.unlockChance);
+  const success = rollChance(
+    kind === "hotwire" ? s.hotwireChance : s.unlockChance,
+  );
   if (success) {
     if (kind === "hotwire") keys.give(source, plateOf(vehicle));
     else SetVehicleDoorsLocked(vehicle, 1);
@@ -108,7 +109,7 @@ async function pick(
       "success",
     );
   }
-  if (Math.random() * 100 < s.breakChance) {
+  if (rollChance(s.breakChance)) {
     inventory.removeItem(source, "lockpick", 1);
     notify(source, Locale("KEYS_BROKE"), "error");
   } else notify(source, Locale("KEYS_FAILED"), "warning");
@@ -116,11 +117,10 @@ async function pick(
 
 /** The lockpick item: from the driver seat it hotwires, next to a locked vehicle it opens the door. */
 function useLockpick(source: number): boolean {
-  const ped = GetPlayerPed(String(source));
-  const seat = GetVehiclePedIsIn(ped, false);
+  const seat = vehicleOf(source, { driver: true });
   let kind: "unlock" | "hotwire";
   let vehicle: number;
-  if (seat && GetPedInVehicleSeat(seat, -1) === ped) {
+  if (seat) {
     if (keys.has(source, plateOf(seat))) return false;
     kind = "hotwire";
     vehicle = seat;
