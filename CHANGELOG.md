@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.2...v0.1.3) (2026-11-01)
+
+
+### Code Refactoring
+
+* feature folders, side entries that only import, panel schema per tab ([57714ef](https://github.com/aifivem/ai-vehiclekeys/commit/57714efa4d43f189702f6423aff550a361561425))
+
 ## [0.1.2](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.1...v0.1.2) (2026-10-31)
 
 
