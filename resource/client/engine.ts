@@ -6,7 +6,7 @@ import {
   notify,
   onCache,
   onServerEvent,
-} from "@aicore-fivem/lib/client";
+} from "@aifivem/lib/client";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 import { seatKey } from "./give";

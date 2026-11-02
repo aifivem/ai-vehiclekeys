@@ -4,8 +4,8 @@ import {
   plateOf,
   PlayerMap,
   vehicleOf,
-} from "@aicore-fivem/lib/server";
-import { normalizePlate } from "@aicore-fivem/lib/shared";
+} from "@aifivem/lib/server";
+import { normalizePlate } from "@aifivem/lib/shared";
 import { EVENTS } from "common/keys";
 import { owners } from "./owners";
 

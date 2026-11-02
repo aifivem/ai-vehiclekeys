@@ -3,8 +3,8 @@ import {
   onCache,
   radial,
   triggerServerCallback,
-} from "@aicore-fivem/lib/client";
-import { RADIAL_VEHICLE } from "@aicore-fivem/shared";
+} from "@aifivem/lib/client";
+import { RADIAL_VEHICLE } from "@aifivem/shared";
 import { Locale } from "common";
 import { EVENTS } from "common/keys";
 

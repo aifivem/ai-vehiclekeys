@@ -1,4 +1,4 @@
-import { int, record } from "@aicore-fivem/lib/shared";
+import { int, record } from "@aifivem/lib/shared";
 
 /** ai-vehiclekeys' contracts. No natives. */
 

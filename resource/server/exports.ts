@@ -3,7 +3,7 @@ import {
   provideExport,
   registerExport,
   vehicleNearPlayer,
-} from "@aicore-fivem/lib/server";
+} from "@aifivem/lib/server";
 import { keys } from "./keys";
 
 /** Own exports and qbx_vehiclekeys (`provide qbx_vehiclekeys`): vehicles by entity or plate. */

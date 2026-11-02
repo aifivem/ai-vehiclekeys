@@ -1,4 +1,4 @@
-import type { PanelSchema } from "@aicore-fivem/shared";
+import type { PanelSchema } from "@aifivem/shared";
 
 const pct = { type: "number", min: 0, max: 100, integer: true } as const;
 const secs = { type: "number", min: 1, max: 120, integer: true } as const;
