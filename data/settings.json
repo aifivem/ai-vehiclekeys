@@ -1,6 +1,7 @@
 {
   "$schema": "./schemas/settings.schema.json",
   "lockDistance": 6,
+  "noWindowSmash": true,
   "unlockChance": 60,
   "unlockSeconds": 5,
   "hotwireChance": 35,

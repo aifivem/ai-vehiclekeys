@@ -23,6 +23,8 @@
   "ADMIN_C_LOCKPICK_DESC": "Using a lockpick next to a locked vehicle opens it; from the driver seat it starts the engine.",
   "ADMIN_F_LOCK_DISTANCE": "Lock reach",
   "ADMIN_H_LOCK_DISTANCE": "How close the player must be to the vehicle.",
+  "ADMIN_F_NO_WINDOW_SMASH": "No window smashing",
+  "ADMIN_H_NO_WINDOW_SMASH": "Players never break a window to get into a locked parked car: they only try the handle.",
   "ADMIN_F_UNLOCK_CHANCE": "Door chance",
   "ADMIN_H_UNLOCK_CHANCE": "Chance a lockpick opens a locked door.",
   "ADMIN_F_UNLOCK_SECONDS": "Door time",

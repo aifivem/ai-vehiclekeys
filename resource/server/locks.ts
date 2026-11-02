@@ -1,6 +1,7 @@
 import {
   notify,
   onClientCallback,
+  onClientEvent,
   plateOf,
   vehicleNearPlayer,
 } from "@aifivem/lib/server";
@@ -33,5 +34,19 @@ onClientCallback(
       2000,
     );
     return { ok: true, locked: !locked };
+  },
+);
+
+/** GTA's "locked but can be damaged" (parked cars): the ped smashes a window to get in. */
+const BREAK_IN_LOCK = 7;
+
+onClientEvent(
+  EVENTS.lockParked,
+  { args: oneArg(readId), rate: { count: 2, windowMs: 1000 } },
+  (source, netId) => {
+    if (!settings.value.noWindowSmash) return;
+    const vehicle = vehicleNearPlayer(source, netId, { metres: 10 });
+    if (vehicle && GetVehicleDoorLockStatus(vehicle) === BREAK_IN_LOCK)
+      SetVehicleDoorsLocked(vehicle, 2);
   },
 );

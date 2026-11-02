@@ -13,6 +13,7 @@ export const keysSchema: PanelSchema = {
       sync: "all",
       sections: {
         lockDistance: { type: "number", min: 2, max: 30, integer: true },
+        noWindowSmash: { type: "bool" },
         unlockChance: pct,
         unlockSeconds: secs,
         hotwireChance: pct,
@@ -47,6 +48,12 @@ export const keysSchema: PanelSchema = {
               min: 2,
               max: 30,
               unit: "m",
+            },
+            {
+              widget: "switch",
+              path: "noWindowSmash",
+              label: "ADMIN_F_NO_WINDOW_SMASH",
+              hint: "ADMIN_H_NO_WINDOW_SMASH",
             },
           ],
         },

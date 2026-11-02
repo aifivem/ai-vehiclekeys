@@ -1,4 +1,4 @@
-import { int, record } from "@aifivem/lib/shared";
+import { bool, int, record } from "@aifivem/lib/shared";
 
 /** ai-vehiclekeys' contracts. No natives. */
 
@@ -11,11 +11,15 @@ export const EVENTS = {
   toggleLock: "ai-vehiclekeys:toggleLock",
   /** Callback: (netId) -> { ok } give a copy of this vehicle's key to the nearest player (both get a notification). */
   giveNearest: "ai-vehiclekeys:giveNearest",
+  /** Client -> server: (netId) a parked car the player tries to enter has GTA's "break in" lock: lock it plainly. */
+  lockParked: "ai-vehiclekeys:lockParked",
 } as const;
 
 export interface Settings {
   /** Metres from the vehicle for the lock key. */
   lockDistance: number;
+  /** Players never smash a window to get into a locked parked car: GTA's break-in lock (7) becomes a plain lock (2). */
+  noWindowSmash: boolean;
   /** Percent chance a lockpick opens a locked door. */
   unlockChance: number;
   unlockSeconds: number;
@@ -41,6 +45,7 @@ export function readSettings(raw: unknown): Settings {
   const s = record(raw);
   return {
     lockDistance: int(s.lockDistance, 6, 2, 30),
+    noWindowSmash: bool(s.noWindowSmash, true),
     unlockChance: int(s.unlockChance, 60, 0, 100),
     unlockSeconds: int(s.unlockSeconds, 5, 1, 60),
     hotwireChance: int(s.hotwireChance, 35, 0, 100),
