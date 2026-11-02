@@ -1,6 +1,6 @@
 {
   "name": "ai-vehiclekeys",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Vehicle keys, locks, lockpicking and hotwiring; qbx_vehiclekeys API",
   "license": "GPL-3.0-only",
