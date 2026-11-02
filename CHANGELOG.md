@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.5...v0.2.0) (2026-11-02)
+
+
+### New Features
+
+* **vehiclekeys:** stop players smashing windows to get into locked parked cars ([79efb50](https://github.com/aifivem/ai-vehiclekeys/commit/79efb507c68a3d653f76954c9f2c382bffd081b6))
+
+
+### Miscellaneous Chores
+
+* **data:** write the no window smashing setting into the panel schema ([6bdb6e6](https://github.com/aifivem/ai-vehiclekeys/commit/6bdb6e66dfafb8d9b29597591e4fb95189f2235b))
+
 ## [0.1.5](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.4...v0.1.5) (2026-11-02)
 
 
