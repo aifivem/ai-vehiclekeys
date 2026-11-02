@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.4...v0.1.5) (2026-11-02)
+
+
+### Documentation
+
+* install from the release zip ([1878e6d](https://github.com/aifivem/ai-vehiclekeys/commit/1878e6d0da96c767155d31b9c69557efe80ed2d0))
+
+
+### Miscellaneous Chores
+
+* build files are no longer in git, the release zip carries them ([a168c8a](https://github.com/aifivem/ai-vehiclekeys/commit/a168c8a2eacbf635a099538bcf2c658a049b1523))
+
 ## [0.1.4](https://github.com/aifivem/ai-vehiclekeys/compare/v0.1.3...v0.1.4) (2026-11-02)
 
 
