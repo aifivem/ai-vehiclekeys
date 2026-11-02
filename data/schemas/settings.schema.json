@@ -13,6 +13,10 @@
       "minimum": 2,
       "maximum": 30
     },
+    "noWindowSmash": {
+      "description": "No window smashing: Players never break a window to get into a locked parked car: they only try the handle.",
+      "type": "boolean"
+    },
     "unlockChance": {
       "description": "Door chance: Chance a lockpick opens a locked door.",
       "type": "integer",
@@ -62,6 +66,7 @@
   },
   "required": [
     "lockDistance",
+    "noWindowSmash",
     "unlockChance",
     "unlockSeconds",
     "hotwireChance",
